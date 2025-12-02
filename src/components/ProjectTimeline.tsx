@@ -1,6 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { Check, Circle } from 'lucide-react';
+import { 
+  CheckCircle2, 
+  Circle, 
+  Clock, 
+  ChevronRight, 
+  LayoutList, 
+  Check, 
+  PlayCircle,
+  AlertCircle,
+  MoreHorizontal
+} from 'lucide-react';
+import { Accordion, AccordionItem } from './ui/Accordion';
+import { CustomDrawer } from './ui/CustomDrawer';
+import { SubStageDetail } from './SubStageDetail';
 
 interface Stage {
   id: string;
@@ -15,10 +28,12 @@ interface SubStage {
   order_index: number;
 }
 
-interface StageHistory {
+interface SubStageDetailData {
+  id: string;
+  project_id: string;
   stage_id: string;
-  sub_stage_id: string | null;
-  entered_at: string;
+  sub_stage_id: string;
+  is_completed: boolean;
 }
 
 interface ProjectTimelineProps {
@@ -28,240 +43,315 @@ interface ProjectTimelineProps {
   onStageChange: () => void;
 }
 
+interface StageWithSubStages extends Stage {
+  sub_stages: SubStage[];
+  details: SubStageDetailData[];
+}
+
+interface ActiveSubStage {
+  projectId: string;
+  stageId: string;
+  subStageId: string;
+  stageName: string;
+  subStageName: string;
+}
+
 export function ProjectTimeline({
   projectId,
-  currentStageId,
-  currentSubStageId,
   onStageChange,
 }: ProjectTimelineProps) {
-  const [stages, setStages] = useState<Stage[]>([]);
-  const [subStages, setSubStages] = useState<SubStage[]>([]);
-  const [history, setHistory] = useState<StageHistory[]>([]);
-  const [showStageSelector, setShowStageSelector] = useState(false);
-  const [selectedStageId, setSelectedStageId] = useState('');
-  const [selectedSubStageId, setSelectedSubStageId] = useState('');
+  const [stagesData, setStagesData] = useState<StageWithSubStages[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeSubStage, setActiveSubStage] = useState<ActiveSubStage | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const [stagesRes, subStagesRes, detailsRes] = await Promise.all([
+      supabase.from('stages').select('*').order('order_index'),
+      supabase.from('sub_stages').select('*').order('order_index'),
+      supabase.from('sub_stage_details').select('*').eq('project_id', projectId),
+    ]);
+
+    if (stagesRes.data && subStagesRes.data) {
+      const allStages: StageWithSubStages[] = stagesRes.data.map((stage) => ({
+        ...stage,
+        sub_stages: subStagesRes.data!
+          .filter((ss) => ss.stage_id === stage.id)
+          .sort((a, b) => a.order_index - b.order_index),
+        details: detailsRes.data?.filter(d => d.stage_id === stage.id) || [],
+      }));
+      setStagesData(allStages);
+    }
+    setLoading(false);
+  }, [projectId]);
 
   useEffect(() => {
     loadData();
-  }, [projectId]);
+  }, [loadData]);
 
-  const loadData = async () => {
-    const [stagesRes, subStagesRes, historyRes] = await Promise.all([
-      supabase.from('stages').select('*').order('order_index'),
-      supabase.from('sub_stages').select('*').order('order_index'),
-      supabase
-        .from('project_stage_history')
-        .select('stage_id, sub_stage_id, entered_at')
-        .eq('project_id', projectId),
-    ]);
-
-    if (stagesRes.data) setStages(stagesRes.data);
-    if (subStagesRes.data) setSubStages(subStagesRes.data);
-    if (historyRes.data) setHistory(historyRes.data);
+  const handleSubStageClick = (stage: Stage, subStage: SubStage) => {
+    setActiveSubStage({
+      projectId,
+      stageId: stage.id,
+      subStageId: subStage.id,
+      stageName: stage.name,
+      subStageName: subStage.name,
+    });
+    setIsDrawerOpen(true);
   };
 
-  const updateStage = async () => {
-    if (!selectedStageId) return;
-
-    const { error: updateError } = await supabase
-      .from('projects')
-      .update({
-        current_stage_id: selectedStageId,
-        current_sub_stage_id: selectedSubStageId || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', projectId);
-
-    if (!updateError) {
-      await supabase.from('project_stage_history').insert({
-        project_id: projectId,
-        stage_id: selectedStageId,
-        sub_stage_id: selectedSubStageId || null,
-      });
-
-      setShowStageSelector(false);
-      onStageChange();
-    }
+  const handleSubStageUpdate = () => {
+    loadData();
+    onStageChange();
   };
 
-  const getCurrentStageIndex = () => {
-    return stages.findIndex((s) => s.id === currentStageId);
+  const handleDrawerClose = () => {
+    setIsDrawerOpen(false);
   };
 
-  const isStageCompleted = (stageId: string) => {
-    return history.some((h) => h.stage_id === stageId);
-  };
-
-  const getSubStageStatus = (stageId: string, subStageId: string) => {
-    return history.some(
-      (h) => h.stage_id === stageId && h.sub_stage_id === subStageId
+  if (loading) {
+    return (
+      <div className="bg-surface-0 dark:bg-surface-50 rounded-xl shadow-sm border border-surface-200 dark:border-surface-100 p-6 text-center">
+        <div className="inline-block w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
+      </div>
     );
-  };
+  }
 
-  const currentIndex = getCurrentStageIndex();
-  const filteredSubStages = subStages.filter(
-    (ss) => ss.stage_id === selectedStageId
-  );
+  // Aktif aşamayı ve sıradaki alt görevi bulma mantığı
+  const currentActiveIndex = stagesData.findIndex(stage => {
+    const totalSub = stage.sub_stages.length;
+    const completedSub = stage.details.filter(d => d.is_completed).length;
+    return totalSub > 0 && completedSub < totalSub;
+  });
+  
+  const activeStageIndex = currentActiveIndex === -1 
+    ? (stagesData.every(s => s.details.filter(d => d.is_completed).length === s.sub_stages.length && s.sub_stages.length > 0) ? stagesData.length - 1 : 0)
+    : currentActiveIndex;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-8">
-        <h3 className="text-xl font-semibold text-gray-900">Proje Durumu</h3>
-        <button
-          onClick={() => {
-            setSelectedStageId(currentStageId || '');
-            setSelectedSubStageId(currentSubStageId || '');
-            setShowStageSelector(true);
-          }}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-        >
-          Aşama Güncelle
-        </button>
-      </div>
-
-      {showStageSelector && (
-        <div className="mb-6 p-4 bg-blue-50 rounded-lg border-2 border-blue-200 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Yeni Aşama Seçin
-            </label>
-            <select
-              value={selectedStageId}
-              onChange={(e) => {
-                setSelectedStageId(e.target.value);
-                setSelectedSubStageId('');
-              }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Seçiniz</option>
-              {stages.map((stage) => (
-                <option key={stage.id} value={stage.id}>
-                  {stage.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {filteredSubStages.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Alt Aşama (Opsiyonel)
-              </label>
-              <select
-                value={selectedSubStageId}
-                onChange={(e) => setSelectedSubStageId(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Seçiniz</option>
-                {filteredSubStages.map((subStage) => (
-                  <option key={subStage.id} value={subStage.id}>
-                    {subStage.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowStageSelector(false)}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              İptal
-            </button>
-            <button
-              onClick={updateStage}
-              disabled={!selectedStageId}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-            >
-              Güncelle
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="relative">
-        <div className="absolute top-8 left-0 right-0 h-1 bg-gray-200">
-          <div
-            className="h-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-500"
-            style={{
-              width: `${currentIndex >= 0 ? ((currentIndex + 1) / stages.length) * 100 : 0}%`,
-            }}
-          />
-        </div>
-
-        <div className="relative flex justify-between">
-          {stages.map((stage, index) => {
-            const isCompleted = isStageCompleted(stage.id);
-            const isCurrent = stage.id === currentStageId;
-            const stageSubStages = subStages.filter(
-              (ss) => ss.stage_id === stage.id
+    <div className="space-y-10">
+      
+      {/* --- YATAY TIMELINE (GÜÇLENDİRİLMİŞ) --- */}
+      <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl shadow-lg border border-surface-200 dark:border-surface-100 p-8 pb-12 overflow-x-auto">
+        <div className="flex items-start justify-between min-w-[700px] px-4">
+          
+          {stagesData.map((stage, index) => {
+            const isCompleted = index < activeStageIndex;
+            const isCurrent = index === activeStageIndex;
+            const isFuture = index > activeStageIndex;
+            
+            // Bu aşamanın aktif alt görevini bul
+            const currentSubTask = stage.sub_stages.find(ss => 
+              !stage.details.some(d => d.sub_stage_id === ss.id && d.is_completed)
             );
 
             return (
-              <div key={stage.id} className="flex flex-col items-center flex-1">
-                <div
-                  className={`w-16 h-16 rounded-full flex items-center justify-center border-4 transition-all duration-300 ${
-                    isCompleted || isCurrent
-                      ? 'bg-blue-600 border-blue-600 shadow-lg scale-110'
-                      : 'bg-white border-gray-300'
-                  }`}
-                >
-                  {isCompleted ? (
-                    <Check className="w-8 h-8 text-white" />
-                  ) : (
-                    <Circle
-                      className={`w-8 h-8 ${isCurrent ? 'text-white' : 'text-gray-400'}`}
-                    />
-                  )}
-                </div>
-
-                <div className="mt-4 text-center">
-                  <p
-                    className={`font-semibold text-sm ${
-                      isCurrent
-                        ? 'text-blue-600'
-                        : isCompleted
-                          ? 'text-gray-900'
-                          : 'text-gray-500'
+              <div key={stage.id} className="flex-1 flex relative">
+                
+                {/* 1. İKON ve BAŞLIK ALANI */}
+                <div className="flex flex-col items-center relative z-10 w-full">
+                  
+                  {/* İkon Çemberi */}
+                  <div 
+                    className={`w-14 h-14 rounded-full flex items-center justify-center border-[3px] transition-all duration-500 relative ${
+                      isCompleted 
+                        ? 'bg-green-500 border-green-500 text-white shadow-lg shadow-green-500/30' 
+                        : isCurrent 
+                          ? 'bg-primary-600 border-primary-600 text-white shadow-xl shadow-primary-600/40 scale-110 ring-4 ring-primary-100 dark:ring-primary-900/40' 
+                          : 'bg-surface-50 dark:bg-surface-100 border-surface-200 dark:border-surface-200 text-gray-400 dark:text-gray-600'
                     }`}
                   >
-                    {stage.name}
-                  </p>
+                    {isCompleted ? (
+                      <Check className="w-7 h-7 stroke-[3]" />
+                    ) : isCurrent ? (
+                      <PlayCircle className="w-7 h-7 fill-white/20 animate-pulse" />
+                    ) : (
+                      <div className="w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600" />
+                    )}
 
-                  {stageSubStages.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {stageSubStages.map((subStage) => {
-                        const subCompleted = getSubStageStatus(
-                          stage.id,
-                          subStage.id
-                        );
-                        const subCurrent =
-                          isCurrent && subStage.id === currentSubStageId;
+                    {/* Küçük Durum Badge'i (Sağ üst köşe) */}
+                    {isCurrent && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white dark:border-surface-50 animate-ping"></span>
+                    )}
+                  </div>
 
-                        return (
-                          <div
-                            key={subStage.id}
-                            className={`text-xs px-2 py-1 rounded ${
-                              subCurrent
-                                ? 'bg-blue-100 text-blue-700 font-medium'
-                                : subCompleted
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
-                            {subStage.name}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {/* Başlık ve Detay */}
+                  <div className={`mt-4 text-center flex flex-col items-center transition-all duration-300 ${isCurrent ? '-translate-y-1' : ''}`}>
+                    <span className={`text-sm font-bold tracking-tight mb-1 ${
+                      isCurrent ? 'text-primary-700 dark:text-primary-400 text-base' : 'text-gray-600 dark:text-gray-400'
+                    }`}>
+                      {stage.name}
+                    </span>
+                    
+                    {/* Aktif Alt Görev Göstergesi */}
+                    {isCurrent && currentSubTask ? (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-50 dark:bg-primary-900/30 border border-primary-100 dark:border-primary-800/50 mt-1 animate-in fade-in slide-in-from-top-2 duration-500">
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse"></div>
+                        <span className="text-[11px] font-semibold text-primary-700 dark:text-primary-300 whitespace-nowrap max-w-[120px] truncate">
+                          {currentSubTask.name}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-gray-400 font-medium">
+                        {stage.details.filter(d => d.is_completed).length}/{stage.sub_stages.length} Adım
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* 2. BAĞLANTI ÇİZGİSİ (Son eleman hariç) */}
+                {index < stagesData.length - 1 && (
+                  <div className="absolute top-7 left-[50%] w-full h-1 -z-0">
+                    {/* Gri Arkaplan Çizgisi */}
+                    <div className="absolute top-0 left-0 w-full h-full bg-surface-200 dark:bg-surface-100 rounded-full"></div>
+                    {/* Renkli İlerleme Çizgisi */}
+                    <div 
+                      className={`absolute top-0 left-0 h-full bg-green-500 rounded-full transition-all duration-1000 ease-out ${
+                        isCompleted ? 'w-full' : 'w-0'
+                      }`}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* --- DETAYLI AKORDİON LİSTESİ --- */}
+      <div className="bg-surface-0 dark:bg-surface-50 rounded-2xl shadow-sm border border-surface-200 dark:border-surface-100 p-6">
+        <div className="flex items-center gap-3 mb-6 p-2 bg-surface-50 dark:bg-surface-100/50 rounded-xl border border-surface-100 dark:border-surface-100/10">
+          <div className="bg-primary-100 dark:bg-primary-900 p-2 rounded-lg text-primary-600 dark:text-primary-300">
+            <LayoutList className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Detaylı Görev Listesi</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Proje aşamalarının detaylarını buradan yönetebilirsiniz.</p>
+          </div>
+        </div>
+        
+        <div className="space-y-4"> 
+          <Accordion initialIndex={activeStageIndex !== -1 ? activeStageIndex : 0}> 
+            {stagesData.map((stage) => {
+              const completedSubStagesCount = stage.sub_stages.filter(ss => 
+                stage.details.some(d => d.sub_stage_id === ss.id && d.is_completed)
+              ).length;
+              const isStageCompleted = stage.sub_stages.length > 0 && completedSubStagesCount === stage.sub_stages.length;
+              
+              const stageStatusIcon = isStageCompleted
+                ? <CheckCircle2 className="w-6 h-6 text-green-500 dark:text-green-400" />
+                : <Circle className="w-6 h-6 text-primary-500 dark:text-primary-400" />;
+
+              return (
+                <AccordionItem
+                  key={stage.id}
+                  title={
+                    <div className="flex items-center gap-4 py-2 w-full">
+                      {stageStatusIcon}
+                      <span className={`font-semibold text-lg ${isStageCompleted ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200'}`}>
+                        {stage.name}
+                      </span>
+                      {stage.sub_stages.length > 0 && (
+                        <div className="ml-auto mr-4 flex items-center gap-2">
+                          <div className="h-1.5 w-24 bg-surface-200 dark:bg-surface-200 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-green-500 transition-all duration-500" 
+                              style={{ width: `${(completedSubStagesCount / stage.sub_stages.length) * 100}%` }}
+                            />
+                          </div>
+                          <span className={`text-xs font-medium ${
+                            isStageCompleted 
+                              ? 'text-green-600 dark:text-green-400' 
+                              : 'text-gray-500 dark:text-gray-400'
+                          }`}>
+                            {completedSubStagesCount}/{stage.sub_stages.length}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  }
+                  isOpen={false}
+                  onToggle={() => {}} 
+                >
+                  <div className="space-y-3 pt-4 px-2">
+                    {stage.sub_stages.length === 0 ? (
+                      <div className="flex items-center justify-center p-6 bg-surface-50 dark:bg-surface-100 rounded-xl border border-dashed border-surface-200 dark:border-surface-200">
+                        <AlertCircle className="w-5 h-5 text-gray-400 mr-2" />
+                        <p className="text-sm text-gray-500 dark:text-gray-400 italic">Bu aşama için alt görev tanımlanmamış.</p>
+                      </div>
+                    ) : (
+                      stage.sub_stages.map((subStage) => {
+                        const isSubCompleted = stage.details.some(
+                            d => d.sub_stage_id === subStage.id && d.is_completed
+                        );
+                        
+                        return (
+                          <div
+                            key={subStage.id}
+                            onClick={() => handleSubStageClick(stage, subStage)}
+                            className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all border group relative overflow-hidden ${
+                              isSubCompleted
+                                ? 'bg-green-50/40 dark:bg-green-900/10 border-green-200 dark:border-green-800 hover:border-green-300'
+                                : 'bg-white dark:bg-surface-50 border-surface-200 dark:border-surface-100 hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-md'
+                            }`}
+                          >
+                            <div className={`absolute left-0 top-0 bottom-0 w-1 transition-colors ${
+                              isSubCompleted ? 'bg-green-500' : 'bg-transparent group-hover:bg-primary-500'
+                            }`} />
+
+                            <div className="flex items-center gap-4 pl-2">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-colors ${
+                                isSubCompleted 
+                                  ? 'bg-green-500 border-green-500' 
+                                  : 'border-gray-300 dark:border-gray-600 group-hover:border-primary-500 bg-white dark:bg-surface-50'
+                              }`}>
+                                {isSubCompleted ? <Check className="w-3.5 h-3.5 text-white" /> : <div className="w-1.5 h-1.5 rounded-full bg-transparent group-hover:bg-primary-500 transition-colors" />}
+                              </div>
+                              <span className={`font-medium transition-colors ${
+                                isSubCompleted ? 'text-green-800 dark:text-green-300 line-through opacity-70' : 'text-gray-700 dark:text-gray-200 group-hover:text-primary-700 dark:group-hover:text-primary-300'
+                              }`}>
+                                {subStage.name}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                               <div className="flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg bg-surface-100 dark:bg-surface-200 text-gray-500 dark:text-gray-400 group-hover:bg-primary-50 dark:group-hover:bg-primary-900/30 group-hover:text-primary-600 dark:group-hover:text-primary-300 transition-colors">
+                                 <span className="hidden sm:inline">Yönet</span> 
+                                 <ChevronRight className='w-3.5 h-3.5' />
+                               </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        </div>
+      </div>
+
+      <CustomDrawer
+        isOpen={isDrawerOpen}
+        onClose={handleDrawerClose}
+        title={activeSubStage ? activeSubStage.subStageName : ''}
+        size="lg"
+      >
+        {activeSubStage ? (
+          <SubStageDetail
+            projectId={activeSubStage.projectId}
+            stageId={activeSubStage.stageId}
+            subStageId={activeSubStage.subStageId}
+            stageName={activeSubStage.stageName}
+            subStageName={activeSubStage.subStageName}
+            onUpdate={handleSubStageUpdate}
+          />
+        ) : (
+            <div /> 
+        )}
+      </CustomDrawer>
     </div>
   );
 }

@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { User } from '@supabase/supabase-js';
+import { User, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -23,10 +23,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      (async () => {
-        setUser(session?.user ?? null);
-        setLoading(false);
-      })();
+      setUser(session?.user ?? null);
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -40,10 +38,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+        },
+      },
     });
     return { error };
   };
