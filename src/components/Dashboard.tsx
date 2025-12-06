@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { supabase } from '../lib/supabase';
-import { LogOut, Briefcase, Settings as SettingsIcon, LayoutGrid } from 'lucide-react';
+import { LogOut, Briefcase, Settings as SettingsIcon, LayoutGrid, Users } from 'lucide-react';
 import { ThemeSwitch } from './ui/ThemeSwitch';
 import { ProjectList } from './ProjectList';
 import { Settings } from './Settings';
+import { StaffList } from './StaffList'; // YENİ IMPORT
 
-type View = 'projects' | 'settings';
+type View = 'projects' | 'settings' | 'staff'; // 'staff' eklendi
 
 export function Dashboard() {
   const { signOut, user } = useAuth();
@@ -58,6 +59,20 @@ export function Dashboard() {
                 <LayoutGrid className="w-4 h-4" />
                 Projeler
               </button>
+              
+              {/* YENİ PERSONEL BUTONU */}
+              <button
+                onClick={() => setCurrentView('staff')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  currentView === 'staff'
+                    ? 'bg-white dark:bg-surface-50 text-primary-600 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                Personel
+              </button>
+
               <button
                 onClick={() => setCurrentView('settings')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -94,6 +109,7 @@ export function Dashboard() {
           </div>
         </div>
         
+        {/* MOBİL MENÜ GÜNCELLEMESİ */}
         <div className="md:hidden border-t border-surface-200 dark:border-surface-100 px-4 py-2 flex gap-2 justify-center bg-surface-0 dark:bg-surface-50">
            <button
                 onClick={() => setCurrentView('projects')}
@@ -102,6 +118,14 @@ export function Dashboard() {
                 }`}
               >
                 <LayoutGrid className="w-4 h-4" /> Projeler
+            </button>
+            <button
+                onClick={() => setCurrentView('staff')}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                  currentView === 'staff' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-600' : 'text-gray-600 dark:text-gray-400'
+                }`}
+              >
+                <Users className="w-4 h-4" /> Personel
             </button>
             <button
                 onClick={() => setCurrentView('settings')}
@@ -115,7 +139,9 @@ export function Dashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {currentView === 'projects' ? <ProjectList /> : <Settings />}
+        {currentView === 'projects' && <ProjectList />}
+        {currentView === 'settings' && <Settings />}
+        {currentView === 'staff' && <StaffList />}
       </div>
     </div>
   );

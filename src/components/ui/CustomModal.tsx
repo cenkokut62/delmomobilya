@@ -18,39 +18,53 @@ const sizeMap = {
 };
 
 export function CustomModal({ isOpen, onClose, title, children, size = 'md' }: CustomModalProps) {
-  // SSR sorunlarını önlemek için mount kontrolü (client-side rendering)
   const [mounted, setMounted] = useState(false);
+  const [showModal, setShowModal] = useState(false); // DOM'da render edilip edilmediğini kontrol eder
+  const [isVisible, setIsVisible] = useState(false); // Görünürlük (Opaklık/Transform) durumunu kontrol eder
 
   useEffect(() => {
     setMounted(true);
-    
-    // Modal açıldığında arka planın kaymasını engelle
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
+  }, []);
 
-    return () => {
+  // Açılış ve Kapanış Animasyon Yönetimi
+  useEffect(() => {
+    if (isOpen) {
+      setShowModal(true); // Önce DOM'a ekle
+      // Browser'ın DOM'u boyaması için minik bir gecikme verip animasyonu başlat
+      const timer = setTimeout(() => setIsVisible(true), 10);
+      
+      document.body.style.overflow = 'hidden';
+      return () => clearTimeout(timer);
+    } else {
+      setIsVisible(false); // Önce animasyonu kapat (fade-out)
+      // Animasyon süresi (300ms) kadar bekle, sonra DOM'dan kaldır
+      const timer = setTimeout(() => setShowModal(false), 300);
+      
       document.body.style.overflow = 'unset';
-    };
+      return () => clearTimeout(timer);
+    }
   }, [isOpen]);
 
-  if (!isOpen || !mounted) return null;
+  if (!mounted || !showModal) return null;
 
-  // createPortal kullanarak modal'ı doğrudan body'ye render ediyoruz
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      {/* Backdrop / Overlay */}
+      {/* Backdrop / Overlay - Fade Effect */}
       <div 
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ease-out ${
+          isVisible ? 'opacity-100' : 'opacity-0'
+        }`} 
         onClick={onClose}
         aria-hidden="true"
       />
 
-      {/* Modal Content */}
+      {/* Modal Content - Zoom & Slide Effect */}
       <div
-        className={`relative bg-surface-0 dark:bg-surface-50 rounded-2xl shadow-2xl w-full ${sizeMap[size]} max-h-[90vh] overflow-y-auto transition-all transform scale-100 border border-surface-200 dark:border-surface-100`}
+        className={`relative bg-surface-0 dark:bg-surface-50 rounded-2xl shadow-2xl w-full ${sizeMap[size]} max-h-[90vh] overflow-y-auto border border-surface-200 dark:border-surface-100 transform transition-all duration-300 ease-out ${
+          isVisible 
+            ? 'opacity-100 scale-100 translate-y-0' 
+            : 'opacity-0 scale-95 translate-y-4'
+        }`}
         role="dialog"
         aria-modal="true"
       >

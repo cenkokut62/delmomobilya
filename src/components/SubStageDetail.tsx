@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { CheckCircle, MessageSquare, Upload, FileText, Trash2, Send } from 'lucide-react';
+import { useConfirmation } from '../contexts/ConfirmationContext';
+import { useRBAC } from '../contexts/RBACContext';
+import { logActivity } from '../lib/logger';
+import { CheckCircle, MessageSquare, Upload, FileText, Trash2, Send, Download } from 'lucide-react';
 
 interface SubStageDetailProps {
   projectId: string;
@@ -57,6 +60,9 @@ export function SubStageDetail({
 }: SubStageDetailProps) {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const { confirm } = useConfirmation();
+  const { hasPermission } = useRBAC();
+  
   const [detail, setDetail] = useState<SubStageDetailData | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [files, setFiles] = useState<FileData[]>([]);
@@ -184,6 +190,7 @@ export function SubStageDetail({
       addToast('error', 'Yorum eklenemedi.');
       console.error(error);
     } else {
+      await logActivity(projectId, 'Yorum Yapıldı', `"${commentText}" (${subStageName})`, 'comment');
       setCommentText('');
       addToast('success', 'Yorum eklendi.');
       await loadDetail();
@@ -191,17 +198,24 @@ export function SubStageDetail({
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!confirm('Bu yorumu silmek istediğinizden emin misiniz?')) return;
+    const isConfirmed = await confirm({
+      title: 'Yorumu Sil',
+      message: 'Bu yorumu silmek istediğinizden emin misiniz?',
+      confirmText: 'Sil',
+      type: 'danger'
+    });
+
+    if (!isConfirmed) return;
 
     const { error } = await supabase
       .from('sub_stage_comments')
       .delete()
-      .eq('id', commentId)
-      .eq('user_id', user?.id);
+      .eq('id', commentId);
 
     if (error) {
       addToast('error', 'Yorum silinemedi.');
     } else {
+      await logActivity(projectId, 'Yorum Silindi', 'Bir yorum silindi.', 'delete');
       addToast('success', 'Yorum silindi.');
       await loadDetail();
     }
@@ -230,6 +244,7 @@ export function SubStageDetail({
 
       if (dbError) throw dbError;
 
+      await logActivity(projectId, 'Dosya Yüklendi', `${file.name} (${subStageName})`, 'file');
       addToast('success', 'Dosya başarıyla yüklendi.');
       await loadDetail();
     } catch (err: any) {
@@ -253,19 +268,26 @@ export function SubStageDetail({
   };
 
   const handleDeleteFile = async (fileId: string, filePath: string) => {
-    if (!confirm('Bu dosyayı silmek istediğinizden emin misiniz?')) return;
+    const isConfirmed = await confirm({
+      title: 'Dosyayı Sil',
+      message: 'Bu dosyayı kalıcı olarak silmek istediğinizden emin misiniz?',
+      confirmText: 'Dosyayı Sil',
+      type: 'danger'
+    });
+
+    if (!isConfirmed) return;
 
     try {
       const { error: dbError } = await supabase
         .from('sub_stage_files')
         .delete()
-        .eq('id', fileId)
-        .eq('user_id', user?.id);
+        .eq('id', fileId);
         
       if (dbError) throw dbError;
 
       await supabase.storage.from(STORAGE_BUCKET).remove([filePath]);
 
+      await logActivity(projectId, 'Dosya Silindi', 'Bir dosya silindi.', 'delete');
       addToast('success', 'Dosya silindi.');
       await loadDetail();
     } catch (err: any) {
@@ -290,6 +312,14 @@ export function SubStageDetail({
       addToast('error', 'Durum güncellenemedi.');
     } else {
       setDetail(prev => prev ? { ...prev, is_completed: newCompletedState } : null);
+      
+      await logActivity(
+        projectId, 
+        newCompletedState ? 'Görev Tamamlandı' : 'Görev Geri Alındı', 
+        `${subStageName} (${stageName})`, 
+        'update'
+      );
+      
       addToast('success', newCompletedState ? 'Aşama tamamlandı!' : 'Aşama geri alındı.');
       onUpdate();
     }
@@ -355,7 +385,8 @@ export function SubStageDetail({
                       </div>
                       <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{comment.content}</p>
                       
-                      {comment.is_own && (
+                      {/* YETKİ KONTROLÜ */}
+                      {(comment.is_own || hasPermission('can_delete_comment')) && (
                         <button
                           onClick={() => handleDeleteComment(comment.id)}
                           className="absolute bottom-2 right-2 p-1 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
@@ -430,7 +461,9 @@ export function SubStageDetail({
                     </span>
                   </div>
                 </div>
-                {file.is_own && (
+                
+                {/* YETKİ KONTROLÜ */}
+                {(file.is_own || hasPermission('can_delete_file')) && (
                   <button
                     onClick={() => handleDeleteFile(file.id, file.file_url)}
                     className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100"

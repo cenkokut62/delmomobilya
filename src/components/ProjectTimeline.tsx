@@ -3,13 +3,14 @@ import { supabase } from '../lib/supabase';
 import { 
   CheckCircle2, 
   Circle, 
-  Clock, 
   ChevronRight, 
   LayoutList, 
   Check, 
   PlayCircle,
   AlertCircle,
-  MoreHorizontal
+  ListTodo,
+  TrendingUp,
+  Clock
 } from 'lucide-react';
 import { Accordion, AccordionItem } from './ui/Accordion';
 import { CustomDrawer } from './ui/CustomDrawer';
@@ -58,12 +59,20 @@ interface ActiveSubStage {
 
 export function ProjectTimeline({
   projectId,
+  currentStageId,
   onStageChange,
 }: ProjectTimelineProps) {
   const [stagesData, setStagesData] = useState<StageWithSubStages[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSubStage, setActiveSubStage] = useState<ActiveSubStage | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // İstatistikler
+  const [stats, setStats] = useState({
+    totalTasks: 0,
+    completedTasks: 0,
+    progress: 0
+  });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -81,10 +90,63 @@ export function ProjectTimeline({
           .sort((a, b) => a.order_index - b.order_index),
         details: detailsRes.data?.filter(d => d.stage_id === stage.id) || [],
       }));
+
+      // İstatistik Hesaplama
+      let total = 0;
+      let completed = 0;
+      allStages.forEach(s => {
+        total += s.sub_stages.length;
+        completed += s.details.filter(d => d.is_completed).length;
+      });
+      setStats({
+        totalTasks: total,
+        completedTasks: completed,
+        progress: total > 0 ? Math.round((completed / total) * 100) : 0
+      });
+
+      // --- OTOMATİK AŞAMA GÜNCELLEME MANTIĞI ---
+      let calculatedActiveStageId = currentStageId;
+      if (!currentStageId && allStages.length > 0) {
+        calculatedActiveStageId = allStages[0].id;
+      } else if (allStages.length > 0) {
+        for (let i = 0; i < allStages.length; i++) {
+            const stage = allStages[i];
+            const totalSub = stage.sub_stages.length;
+            const completedSub = stage.details.filter(d => d.is_completed).length;
+
+            if (totalSub === 0 || completedSub < totalSub) {
+                calculatedActiveStageId = stage.id;
+                break; 
+            }
+            if (i === allStages.length - 1) {
+                calculatedActiveStageId = stage.id;
+            }
+        }
+      }
+
+      if (calculatedActiveStageId && calculatedActiveStageId !== currentStageId) {
+          const { error } = await supabase
+            .from('projects')
+            .update({ 
+                current_stage_id: calculatedActiveStageId,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', projectId);
+          
+          if (!error) {
+              await supabase.from('project_stage_history').insert({
+                  project_id: projectId,
+                  stage_id: calculatedActiveStageId,
+                  notes: 'Otomatik aşama ilerlemesi'
+              });
+              onStageChange();
+          }
+      }
+
       setStagesData(allStages);
     }
     setLoading(false);
-  }, [projectId]);
+  }, [projectId, currentStageId, onStageChange]);
 
   useEffect(() => {
     loadData();
@@ -103,7 +165,6 @@ export function ProjectTimeline({
 
   const handleSubStageUpdate = () => {
     loadData();
-    onStageChange();
   };
 
   const handleDrawerClose = () => {
@@ -118,116 +179,134 @@ export function ProjectTimeline({
     );
   }
 
-  // Aktif aşamayı ve sıradaki alt görevi bulma mantığı
-  const currentActiveIndex = stagesData.findIndex(stage => {
-    const totalSub = stage.sub_stages.length;
-    const completedSub = stage.details.filter(d => d.is_completed).length;
-    return totalSub > 0 && completedSub < totalSub;
-  });
-  
-  const activeStageIndex = currentActiveIndex === -1 
-    ? (stagesData.every(s => s.details.filter(d => d.is_completed).length === s.sub_stages.length && s.sub_stages.length > 0) ? stagesData.length - 1 : 0)
-    : currentActiveIndex;
+  const activeStageIndex = stagesData.findIndex(s => s.id === currentStageId);
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6 animate-fade-in">
       
-      {/* --- YATAY TIMELINE (GÜÇLENDİRİLMİŞ) --- */}
-      <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl shadow-lg border border-surface-200 dark:border-surface-100 p-8 pb-12 overflow-x-auto">
-        <div className="flex items-start justify-between min-w-[700px] px-4">
-          
-          {stagesData.map((stage, index) => {
-            const isCompleted = index < activeStageIndex;
-            const isCurrent = index === activeStageIndex;
-            const isFuture = index > activeStageIndex;
-            
-            // Bu aşamanın aktif alt görevini bul
-            const currentSubTask = stage.sub_stages.find(ss => 
-              !stage.details.some(d => d.sub_stage_id === ss.id && d.is_completed)
-            );
-
-            return (
-              <div key={stage.id} className="flex-1 flex relative">
-                
-                {/* 1. İKON ve BAŞLIK ALANI */}
-                <div className="flex flex-col items-center relative z-10 w-full">
-                  
-                  {/* İkon Çemberi */}
-                  <div 
-                    className={`w-14 h-14 rounded-full flex items-center justify-center border-[3px] transition-all duration-500 relative ${
-                      isCompleted 
-                        ? 'bg-green-500 border-green-500 text-white shadow-lg shadow-green-500/30' 
-                        : isCurrent 
-                          ? 'bg-primary-600 border-primary-600 text-white shadow-xl shadow-primary-600/40 scale-110 ring-4 ring-primary-100 dark:ring-primary-900/40' 
-                          : 'bg-surface-50 dark:bg-surface-100 border-surface-200 dark:border-surface-200 text-gray-400 dark:text-gray-600'
-                    }`}
-                  >
-                    {isCompleted ? (
-                      <Check className="w-7 h-7 stroke-[3]" />
-                    ) : isCurrent ? (
-                      <PlayCircle className="w-7 h-7 fill-white/20 animate-pulse" />
-                    ) : (
-                      <div className="w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600" />
-                    )}
-
-                    {/* Küçük Durum Badge'i (Sağ üst köşe) */}
-                    {isCurrent && (
-                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white dark:border-surface-50 animate-ping"></span>
-                    )}
-                  </div>
-
-                  {/* Başlık ve Detay */}
-                  <div className={`mt-4 text-center flex flex-col items-center transition-all duration-300 ${isCurrent ? '-translate-y-1' : ''}`}>
-                    <span className={`text-sm font-bold tracking-tight mb-1 ${
-                      isCurrent ? 'text-primary-700 dark:text-primary-400 text-base' : 'text-gray-600 dark:text-gray-400'
-                    }`}>
-                      {stage.name}
-                    </span>
-                    
-                    {/* Aktif Alt Görev Göstergesi */}
-                    {isCurrent && currentSubTask ? (
-                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-50 dark:bg-primary-900/30 border border-primary-100 dark:border-primary-800/50 mt-1 animate-in fade-in slide-in-from-top-2 duration-500">
-                        <div className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse"></div>
-                        <span className="text-[11px] font-semibold text-primary-700 dark:text-primary-300 whitespace-nowrap max-w-[120px] truncate">
-                          {currentSubTask.name}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-[11px] text-gray-400 font-medium">
-                        {stage.details.filter(d => d.is_completed).length}/{stage.sub_stages.length} Adım
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* 2. BAĞLANTI ÇİZGİSİ (Son eleman hariç) */}
-                {index < stagesData.length - 1 && (
-                  <div className="absolute top-7 left-[50%] w-full h-1 -z-0">
-                    {/* Gri Arkaplan Çizgisi */}
-                    <div className="absolute top-0 left-0 w-full h-full bg-surface-200 dark:bg-surface-100 rounded-full"></div>
-                    {/* Renkli İlerleme Çizgisi */}
-                    <div 
-                      className={`absolute top-0 left-0 h-full bg-green-500 rounded-full transition-all duration-1000 ease-out ${
-                        isCompleted ? 'w-full' : 'w-0'
-                      }`}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      {/* 1. ÜST İSTATİSTİKLER (Mini Bento) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-3xl shadow-sm border border-surface-200 dark:border-surface-100 flex items-center justify-between">
+            <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Toplam Görev</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{stats.totalTasks}</p>
+            </div>
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-2xl text-blue-600 dark:text-blue-400">
+                <ListTodo className="w-6 h-6" />
+            </div>
+        </div>
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-3xl shadow-sm border border-surface-200 dark:border-surface-100 flex items-center justify-between">
+            <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Tamamlanan</p>
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">{stats.completedTasks}</p>
+            </div>
+            <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-2xl text-green-600 dark:text-green-400">
+                <CheckCircle2 className="w-6 h-6" />
+            </div>
+        </div>
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-3xl shadow-sm border border-surface-200 dark:border-surface-100 flex items-center justify-between">
+            <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">İlerleme</p>
+                <p className="text-2xl font-bold text-primary-600 dark:text-primary-400 mt-1">%{stats.progress}</p>
+            </div>
+            <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-2xl text-primary-600 dark:text-primary-400">
+                <TrendingUp className="w-6 h-6" />
+            </div>
         </div>
       </div>
 
-      {/* --- DETAYLI AKORDİON LİSTESİ --- */}
-      <div className="bg-surface-0 dark:bg-surface-50 rounded-2xl shadow-sm border border-surface-200 dark:border-surface-100 p-6">
-        <div className="flex items-center gap-3 mb-6 p-2 bg-surface-50 dark:bg-surface-100/50 rounded-xl border border-surface-100 dark:border-surface-100/10">
-          <div className="bg-primary-100 dark:bg-primary-900 p-2 rounded-lg text-primary-600 dark:text-primary-300">
+      {/* 2. GÖRSEL TIMELINE (Bento Card) */}
+      <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl shadow-sm border border-surface-200 dark:border-surface-100 p-8 overflow-hidden relative">
+        <div className="flex items-center gap-3 mb-8">
+            <div className="p-2.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl text-indigo-600 dark:text-indigo-400">
+                <Clock className="w-5 h-5" />
+            </div>
+            <div>
+                <h3 className="font-bold text-gray-900 dark:text-gray-100">Süreç Haritası</h3>
+                <p className="text-xs text-gray-500">Projenin canlı ilerleme durumu</p>
+            </div>
+        </div>
+
+        {/* DÜZELTME: pt-4 eklendi. Bu sayede büyüyen ikon üstten kesilmeyecek. */}
+        <div className="overflow-x-auto pb-4 pt-4 -mx-8 px-8 custom-scrollbar">
+            <div className="flex items-start justify-between min-w-[700px] px-4">
+            {stagesData.map((stage, index) => {
+                const isCompleted = index < activeStageIndex;
+                const isCurrent = index === activeStageIndex;
+                
+                const currentSubTask = stage.sub_stages.find(ss => 
+                !stage.details.some(d => d.sub_stage_id === ss.id && d.is_completed)
+                );
+
+                return (
+                <div key={stage.id} className="flex-1 flex relative">
+                    <div className="flex flex-col items-center relative z-10 w-full">
+                    <div 
+                        className={`w-14 h-14 rounded-full flex items-center justify-center border-[3px] transition-all duration-500 relative ${
+                        isCompleted 
+                            ? 'bg-green-500 border-green-500 text-white shadow-lg shadow-green-500/30' 
+                            : isCurrent 
+                            ? 'bg-primary-600 border-primary-600 text-white shadow-xl shadow-primary-600/40 scale-110 ring-4 ring-primary-100 dark:ring-primary-900/40' 
+                            : 'bg-surface-50 dark:bg-surface-100 border-surface-200 dark:border-surface-200 text-gray-400 dark:text-gray-600'
+                        }`}
+                    >
+                        {isCompleted ? (
+                        <Check className="w-7 h-7 stroke-[3]" />
+                        ) : isCurrent ? (
+                        <PlayCircle className="w-7 h-7 fill-white/20 animate-pulse" />
+                        ) : (
+                        <div className="w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600" />
+                        )}
+                    </div>
+
+                    <div className={`mt-4 text-center flex flex-col items-center transition-all duration-300 ${isCurrent ? '-translate-y-1' : ''}`}>
+                        <span className={`text-sm font-bold tracking-tight mb-1 ${
+                        isCurrent ? 'text-primary-700 dark:text-primary-400 text-base' : 'text-gray-600 dark:text-gray-400'
+                        }`}>
+                        {stage.name}
+                        </span>
+                        
+                        {isCurrent && currentSubTask ? (
+                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-50 dark:bg-primary-900/30 border border-primary-100 dark:border-primary-800/50 mt-1 animate-in fade-in slide-in-from-top-2 duration-500">
+                            <div className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse"></div>
+                            <span className="text-[11px] font-semibold text-primary-700 dark:text-primary-300 whitespace-nowrap max-w-[120px] truncate">
+                            {currentSubTask.name}
+                            </span>
+                        </div>
+                        ) : (
+                        <span className="text-[11px] text-gray-400 font-medium">
+                            {stage.details.filter(d => d.is_completed).length}/{stage.sub_stages.length} Adım
+                        </span>
+                        )}
+                    </div>
+                    </div>
+
+                    {index < stagesData.length - 1 && (
+                    <div className="absolute top-7 left-[50%] w-full h-1 -z-0">
+                        <div className="absolute top-0 left-0 w-full h-full bg-surface-200 dark:bg-surface-100 rounded-full"></div>
+                        <div 
+                        className={`absolute top-0 left-0 h-full bg-green-500 rounded-full transition-all duration-1000 ease-out ${
+                            isCompleted ? 'w-full' : 'w-0'
+                        }`}
+                        />
+                    </div>
+                    )}
+                </div>
+                );
+            })}
+            </div>
+        </div>
+      </div>
+
+      {/* 3. DETAYLI LİSTE (Bento Card) */}
+      <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl shadow-sm border border-surface-200 dark:border-surface-100 p-6">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-surface-100 dark:border-surface-100/10">
+          <div className="p-2.5 bg-purple-50 dark:bg-purple-900/20 rounded-xl text-purple-600 dark:text-purple-400">
             <LayoutList className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Detaylı Görev Listesi</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Proje aşamalarının detaylarını buradan yönetebilirsiniz.</p>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Görev Yönetim Merkezi</h3>
+            <p className="text-xs text-gray-500">Aşama detayları ve kontrolleri</p>
           </div>
         </div>
         

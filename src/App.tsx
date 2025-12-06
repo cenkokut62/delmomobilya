@@ -2,6 +2,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { SettingsProvider } from './contexts/SettingsContext';
+import { ConfirmationProvider } from './contexts/ConfirmationContext';
+import { RBACProvider } from './contexts/RBACContext'; // YENİ
 import { Auth } from './components/Auth';
 import { Dashboard } from './components/Dashboard';
 
@@ -23,11 +25,15 @@ function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <SettingsProvider>
-          <AuthProvider>
-            <AppContent />
-          </AuthProvider>
-        </SettingsProvider>
+        <ConfirmationProvider>
+          <SettingsProvider>
+            <AuthProvider>
+              <RBACProvider> {/* YENİ: AuthProvider'ın altına ekledik */}
+                <AppContent />
+              </RBACProvider>
+            </AuthProvider>
+          </SettingsProvider>
+        </ConfirmationProvider>
       </ToastProvider>
     </ThemeProvider>
   );

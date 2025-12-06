@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogIn, UserPlus } from 'lucide-react';
+import { LogIn, Lock } from 'lucide-react';
 
 export function Auth() {
-  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const { signIn } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,13 +15,10 @@ export function Auth() {
     setLoading(true);
 
     try {
-      const { error } = isSignUp
-        ? await signUp(email, password, firstName, lastName)
-        : await signIn(email, password);
-
+      const { error } = await signIn(email, password);
       if (error) throw error;
     } catch (err: any) {
-      setError(err.message);
+      setError('Giriş başarısız. Bilgilerinizi kontrol ediniz.');
     } finally {
       setLoading(false);
     }
@@ -32,64 +26,39 @@ export function Auth() {
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-surface-0 flex items-center justify-center p-4 transition-colors duration-300">
-      <div className="bg-surface-0 dark:bg-surface-50 rounded-2xl shadow-2xl w-full max-w-md p-8 border border-surface-200 dark:border-surface-100">
-        <div className="flex items-center justify-center mb-8">
-          <div className="bg-primary-600 p-3 rounded-xl">
-            {isSignUp ? <UserPlus className="w-8 h-8 text-white" /> : <LogIn className="w-8 h-8 text-white" />}
+      <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl shadow-2xl w-full max-w-md p-8 border border-surface-200 dark:border-surface-100 relative overflow-hidden">
+        
+        {/* Dekoratif Arka Plan */}
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary-500 to-blue-600"></div>
+        <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary-500/10 rounded-full blur-3xl"></div>
+        
+        <div className="flex flex-col items-center justify-center mb-8 relative z-10">
+          <div className="bg-primary-50 dark:bg-primary-900/30 p-4 rounded-2xl mb-4">
+            <Lock className="w-8 h-8 text-primary-600 dark:text-primary-400" />
           </div>
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Yönetim Paneli</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-2 text-center text-sm">
+            Devam etmek için lütfen giriş yapın
+          </p>
         </div>
 
-        <h2 className="text-3xl font-bold text-center text-gray-900 dark:text-gray-100 mb-2">
-          Mobilya CRM
-        </h2>
-        <p className="text-center text-gray-600 dark:text-gray-400 mb-8">
-          {isSignUp ? 'Profesyonel ekibimize katılın' : 'Yönetim paneline giriş yapın'}
-        </p>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {isSignUp && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ad</label>
-                <input
-                  type="text"
-                  required
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  className="w-full px-4 py-2 border border-surface-200 dark:border-surface-100 dark:bg-surface-50 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Ahmet"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Soyad</label>
-                <input
-                  type="text"
-                  required
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  className="w-full px-4 py-2 border border-surface-200 dark:border-surface-100 dark:bg-surface-50 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Yılmaz"
-                />
-              </div>
-            </div>
-          )}
-
+        <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              E-posta
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 ml-1">
+              E-posta Adresi
             </label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 border border-surface-200 dark:border-surface-100 dark:bg-surface-50 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-surface-100 border border-surface-200 dark:border-surface-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all outline-none dark:text-white"
               placeholder="ornek@sirket.com"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 ml-1">
               Şifre
             </label>
             <input
@@ -97,13 +66,14 @@ export function Auth() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 border border-surface-200 dark:border-surface-100 dark:bg-surface-50 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-surface-100 border border-surface-200 dark:border-surface-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all outline-none dark:text-white"
               placeholder="••••••••"
             />
           </div>
 
           {error && (
-            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
               {error}
             </div>
           )}
@@ -111,22 +81,22 @@ export function Auth() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-600/20"
+            className="w-full bg-primary-600 text-white py-3.5 rounded-xl font-semibold hover:bg-primary-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-600/20 active:scale-95 flex items-center justify-center gap-2"
           >
-            {loading ? 'İşleniyor...' : isSignUp ? 'Hesap Oluştur' : 'Giriş Yap'}
+            {loading ? (
+              'Giriş Yapılıyor...'
+            ) : (
+              <>
+                <LogIn className="w-5 h-5" /> Giriş Yap
+              </>
+            )}
           </button>
         </form>
-
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => {
-              setIsSignUp(!isSignUp);
-              setError('');
-            }}
-            className="text-primary-600 dark:text-primary-400 hover:text-primary-700 font-medium text-sm transition-colors"
-          >
-            {isSignUp ? 'Zaten hesabınız var mı? Giriş yapın' : 'Hesabınız yok mu? Kayıt olun'}
-          </button>
+        
+        <div className="mt-8 text-center">
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            © 2025 Delmo Mobilya CRM. Tüm hakları saklıdır.
+          </p>
         </div>
       </div>
     </div>

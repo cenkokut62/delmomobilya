@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useTheme } from './ThemeContext';
 
 interface AppSettings {
   id: string;
   logo_url: string | null;
+  dark_logo_url?: string | null;
   light_primary_color: string;
   dark_primary_color: string;
+  company_name: string;
 }
 
 interface SettingsContextType {
@@ -19,17 +22,29 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const { theme } = useTheme();
 
   useEffect(() => {
     fetchSettings();
   }, []);
 
+  // Kritik Düzeltme: Tema veya Ayar değiştiğinde rengi zorla uygula
   useEffect(() => {
     if (settings) {
       const root = document.documentElement;
-      root.style.setProperty('--color-primary-600', settings.light_primary_color);
+      
+      // Temaya göre doğru rengi seç
+      const activeColor = theme === 'dark' 
+        ? (settings.dark_primary_color || '#60A5FA') 
+        : (settings.light_primary_color || '#2563EB');
+      
+      // CSS değişkenini güncelle
+      root.style.setProperty('--color-primary-600', activeColor);
+      
+      // Debug için (Gerekirse konsola bakabilirsin)
+      // console.log(`Tema Rengi Güncellendi (${theme}):`, activeColor);
     }
-  }, [settings]);
+  }, [settings, theme]);
 
   const fetchSettings = async () => {
     try {
@@ -42,7 +57,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (data) {
         setSettings(data);
       } else if (!data && !error) {
-        const { data: newData } = await supabase.from('app_settings').insert({}).select().single();
+        // Varsayılan ayarları oluştur
+        const { data: newData } = await supabase
+          .from('app_settings')
+          .insert({
+            light_primary_color: '#2563EB',
+            dark_primary_color: '#60A5FA'
+          })
+          .select()
+          .single();
         if(newData) setSettings(newData);
       }
     } catch (error) {
