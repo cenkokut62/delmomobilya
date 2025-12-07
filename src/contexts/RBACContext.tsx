@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 
+// 1. Yeni yetkiyi buraya ekliyoruz: can_manage_expenses
 interface Permissions {
   can_manage_staff?: boolean;
   can_manage_settings?: boolean;
@@ -9,6 +10,7 @@ interface Permissions {
   can_delete_file?: boolean;
   can_delete_comment?: boolean;
   can_view_financials?: boolean;
+  can_manage_expenses?: boolean; // YENİ EKLENDİ
   [key: string]: boolean | undefined;
 }
 
@@ -37,7 +39,6 @@ export function RBACProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Profil ve Rol bilgisini çek
       const { data, error } = await supabase
         .from('profiles')
         .select(`
@@ -56,7 +57,6 @@ export function RBACProvider({ children }: { children: React.ReactNode }) {
         // @ts-ignore
         setPermissions(data.roles.permissions || {});
       } else {
-        // Rol atanmamışsa varsayılan (kısıtlı)
         setRoleName('Misafir');
         setPermissions({});
       }
@@ -72,8 +72,6 @@ export function RBACProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const hasPermission = (permission: keyof Permissions) => {
-    // Yönetici her şeye yetkilidir (opsiyonel hardcode, veritabanından gelmesi daha iyi)
-    // if (roleName === 'Yönetici') return true; 
     return !!permissions[permission];
   };
 

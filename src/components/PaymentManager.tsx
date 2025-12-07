@@ -13,28 +13,31 @@ import {
   Calendar, 
   CreditCard, 
   TrendingUp, 
-  PieChart, 
+  TrendingDown, 
   FileText, 
   ArrowUpRight, 
+  ArrowDownRight,
   Wallet, 
   Download, 
   Banknote, 
-  Building2,
-  Clock,
-  CheckCircle2,
-  AlertCircle
+  Building2, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle 
 } from 'lucide-react';
 import { CustomModal } from './ui/CustomModal';
 import { CustomAlert } from './ui/CustomAlert';
 import { CustomSelect } from './ui/CustomSelect';
 
-interface Payment {
+interface Transaction {
   id: string;
+  type: 'income' | 'expense';
+  category: string; 
   amount: number;
-  payment_date: string;
-  payment_type: string;
-  notes: string | null;
+  date: string;
+  description: string | null;
   created_at: string;
+  payment_type?: string;
 }
 
 interface PaymentManagerProps {
@@ -46,7 +49,7 @@ interface PaymentManagerProps {
     email: string | null;
     address: string;
   };
-  onUpdate?: () => void; // YENİ EKLENDİ: Güncelleme Tetikleyici
+  onUpdate?: () => void;
 }
 
 const trToEn = (text: string) => {
@@ -65,117 +68,149 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
   const { settings } = useSettings();
   const { confirm } = useConfirmation();
   const { hasPermission } = useRBAC();
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  const [activeTab, setActiveTab] = useState<'income' | 'expense'>('income');
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   
   const [formData, setFormData] = useState({
+    category: '',
     amount: '',
-    payment_date: new Date().toISOString().split('T')[0],
-    payment_type: 'Nakit',
-    notes: '',
+    date: new Date().toISOString().split('T')[0],
+    description: '',
   });
 
   useEffect(() => {
-    loadPayments();
+    loadTransactions();
   }, [projectId]);
 
-  const loadPayments = async () => {
-    const { data } = await supabase
+  const loadTransactions = async () => {
+    setLoading(true);
+    
+    // Gelirleri Çek
+    const { data: payments } = await supabase
       .from('payments')
       .select('*')
-      .eq('project_id', projectId)
-      .order('payment_date', { ascending: false });
+      .eq('project_id', projectId);
 
-    if (data) {
-      setPayments(data);
-    }
-  };
+    // Giderleri Çek
+    const { data: expenses } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('project_id', projectId);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+    const combined: Transaction[] = [
+      ...(payments || []).map(p => ({
+        id: p.id,
+        type: 'income' as const,
+        category: p.payment_type, // Gelirlerde kategori ödeme tipidir
+        payment_type: p.payment_type,
+        amount: p.amount,
+        date: p.payment_date,
+        description: p.notes,
+        created_at: p.created_at
+      })),
+      ...(expenses || []).map(e => ({
+        id: e.id,
+        type: 'expense' as const,
+        category: e.category,
+        amount: e.amount,
+        date: e.expense_date,
+        description: e.description,
+        created_at: e.created_at
+      }))
+    ];
 
-    const amountVal = parseFloat(formData.amount);
-    if (!amountVal || amountVal <= 0) {
-        addToast('warning', 'Lütfen geçerli bir tutar giriniz.');
-        setLoading(false);
-        return;
-    }
-
-    const { error } = await supabase.from('payments').insert({
-      project_id: projectId,
-      amount: amountVal,
-      payment_date: formData.payment_date,
-      payment_type: formData.payment_type,
-      notes: formData.notes || null,
-    });
-
-    if (!error) {
-      await logActivity(
-        projectId, 
-        'Ödeme Alındı', 
-        `${formData.payment_type} ile ödeme girişi yapıldı.`, 
-        'payment', 
-        { amount: amountVal }
-      );
-
-      setFormData({
-        amount: '',
-        payment_date: new Date().toISOString().split('T')[0],
-        payment_type: 'Nakit',
-        notes: '',
-      });
-      setIsModalOpen(false);
-      await loadPayments();
-      if (onUpdate) onUpdate(); // ANA SAYFAYI GÜNCELLE
-      addToast('success', 'Ödeme başarıyla eklendi.');
-    } else {
-        addToast('error', 'Ödeme eklenirken hata oluştu.');
-    }
+    // Tarihe göre sırala (Yeniden eskiye)
+    combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    setTransactions(combined);
     setLoading(false);
   };
 
-  const deletePayment = async (id: string) => {
-    const isConfirmed = await confirm({
-      title: 'Ödemeyi Sil',
-      message: 'Bu ödeme kaydını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
-      confirmText: 'Evet, Sil',
-      cancelText: 'Vazgeç',
-      type: 'danger'
-    });
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountVal = parseFloat(formData.amount);
+    if (!amountVal || amountVal <= 0) {
+        return addToast('warning', 'Geçerli bir tutar giriniz.');
+    }
 
-    if (!isConfirmed) return;
+    setLoading(true);
+    
+    if (activeTab === 'income') {
+      // ÖDEME EKLEME
+      const { error } = await supabase.from('payments').insert({
+        project_id: projectId,
+        amount: amountVal,
+        payment_date: formData.date,
+        payment_type: formData.category || 'Nakit',
+        notes: formData.description || null,
+      });
 
-    const { data: paymentToDelete } = await supabase.from('payments').select('amount, payment_type').eq('id', id).single();
+      if (!error) {
+        await logActivity(projectId, 'Ödeme Alındı', `${formData.category} ile ödeme alındı.`, 'payment', { amount: amountVal });
+        addToast('success', 'Tahsilat kaydedildi.');
+      } else {
+        addToast('error', 'Hata oluştu.');
+      }
+    } else {
+      // GİDER EKLEME YETKİ KONTROLÜ
+      if (!hasPermission('can_manage_expenses')) {
+          setLoading(false);
+          return addToast('error', 'Gider ekleme yetkiniz bulunmuyor.');
+      }
 
-    const { error } = await supabase.from('payments').delete().eq('id', id);
+      // GİDER EKLEME
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase.from('expenses').insert({
+        project_id: projectId,
+        category: formData.category || 'Genel',
+        amount: amountVal,
+        expense_date: formData.date,
+        description: formData.description || null,
+        created_by: user?.id
+      });
+
+      if (!error) {
+        await logActivity(projectId, 'Gider Eklendi', `${formData.category} masrafı girildi.`, 'update', { amount: amountVal });
+        addToast('success', 'Gider kaydedildi.');
+      } else {
+        addToast('error', 'Hata oluştu.');
+      }
+    }
+
+    setIsModalOpen(false);
+    setFormData({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '' });
+    await loadTransactions();
+    if (onUpdate) onUpdate();
+    setLoading(false);
+  };
+
+  const handleDelete = async (id: string, type: 'income' | 'expense') => {
+    // SİLME YETKİ KONTROLLERİ
+    if (type === 'income' && !hasPermission('can_delete_payment')) {
+        return addToast('error', 'Ödeme silme yetkiniz yok.');
+    }
+    if (type === 'expense' && !hasPermission('can_manage_expenses')) {
+        return addToast('error', 'Gider silme yetkiniz yok.');
+    }
+
+    if (!await confirm({ title: 'Sil', message: 'Bu kaydı silmek istediğinizden emin misiniz?', type: 'danger' })) return;
+
+    const table = type === 'income' ? 'payments' : 'expenses';
+    const { error } = await supabase.from(table).delete().eq('id', id);
 
     if (!error) {
-      if(paymentToDelete) {
-          await logActivity(
-              projectId, 
-              'Ödeme Silindi', 
-              `${paymentToDelete.payment_type} ile alınan ödeme kaydı silindi.`, 
-              'delete',
-              { amount: paymentToDelete.amount }
-          );
-      }
-      await loadPayments();
-      if (onUpdate) onUpdate(); // ANA SAYFAYI GÜNCELLE
-      addToast('info', 'Ödeme kaydı silindi.');
+      addToast('info', 'Kayıt silindi.');
+      loadTransactions();
+      if (onUpdate) onUpdate();
     } else {
-      addToast('error', 'Silme işlemi başarısız.');
+      addToast('error', 'Silinemedi.');
     }
   };
 
-  const generateReceipt = (payment: Payment) => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a5'
-    });
-
+  const generateReceipt = (transaction: Transaction) => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
     const companyName = settings?.company_name ? trToEn(settings.company_name) : "Firma Unvani Girilmemis";
     const primaryColor = [37, 99, 235]; 
 
@@ -195,397 +230,294 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
     doc.setTextColor(100);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Tarih: ${new Date(payment.payment_date).toLocaleDateString('tr-TR')}`, 195, 30, { align: 'right' });
-    doc.text(`Belge No: #${payment.id.slice(0, 8).toUpperCase()}`, 195, 35, { align: 'right' });
+    doc.text(`Tarih: ${new Date(transaction.date).toLocaleDateString('tr-TR')}`, 195, 30, { align: 'right' });
+    doc.text(`Belge No: #${transaction.id.slice(0, 8).toUpperCase()}`, 195, 35, { align: 'right' });
 
     doc.setDrawColor(230);
     doc.setLineWidth(0.5);
     doc.line(10, 42, 200, 42);
 
     const boxY = 50;
-    const boxHeight = 35;
-    const boxPadding = 5;
     
+    // Müşteri Alanı
     doc.setDrawColor(220);
-    doc.setFillColor(252, 252, 252); 
-    doc.roundedRect(10, boxY, 90, boxHeight, 2, 2, 'FD');
-    
-    doc.setFontSize(9);
-    doc.setTextColor(150);
-    doc.text('MUSTERI (SAYIN)', 10 + boxPadding, boxY + 6);
-    
-    doc.setFontSize(11);
-    doc.setTextColor(0);
-    doc.setFont('helvetica', 'bold');
-    
-    const customerNameLines = doc.splitTextToSize(trToEn(customerDetails.name), 80);
-    doc.text(customerNameLines, 10 + boxPadding, boxY + 12);
-    
-    let contactY = boxY + 12 + (customerNameLines.length * 4);
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(80);
-    if(customerDetails.phone) {
-        doc.text(`Tel: ${customerDetails.phone}`, 10 + boxPadding, contactY);
-        contactY += 4;
-    }
-    if(customerDetails.email) {
-        doc.text(`E-posta: ${trToEn(customerDetails.email)}`, 10 + boxPadding, contactY);
-    }
+    doc.setFillColor(252, 252, 252);
+    doc.roundedRect(10, boxY, 90, 35, 2, 2, 'FD');
+    doc.setFontSize(9); doc.setTextColor(150);
+    doc.text('MUSTERI (SAYIN)', 15, boxY + 6);
+    doc.setFontSize(11); doc.setTextColor(0); doc.setFont('helvetica', 'bold');
+    doc.text(trToEn(customerDetails.name), 15, boxY + 12);
 
-    doc.setFillColor(245, 248, 255); 
-    doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]); 
-    doc.roundedRect(110, boxY, 90, boxHeight, 2, 2, 'FD');
-    
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.text('ALICI (FIRMA)', 110 + boxPadding, boxY + 6);
-    
-    doc.setFontSize(11);
-    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.setFont('helvetica', 'bold');
-    
-    const companyNameLines = doc.splitTextToSize(companyName, 80);
-    doc.text(companyNameLines, 110 + boxPadding, boxY + 12);
-    
-    doc.setFontSize(8);
-    doc.setTextColor(120);
-    doc.setFont('helvetica', 'normal');
-    const footerOffset = (companyNameLines.length - 1) * 4;
-    doc.text('Bu belge resmi evrak niteligindedir.', 110 + boxPadding, boxY + 30 + footerOffset);
+    // Firma Alanı
+    doc.setFillColor(245, 248, 255);
+    doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.roundedRect(110, boxY, 90, 35, 2, 2, 'FD');
+    doc.setFontSize(9); doc.setTextColor(100);
+    doc.text('ALICI (FIRMA)', 115, boxY + 6);
+    doc.setFontSize(11); doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.setFont('helvetica', 'bold');
+    doc.text(companyName, 115, boxY + 12);
 
+    // Tablo
     const tableY = 95;
-    
-    doc.setFillColor(245, 245, 245);
-    doc.setDrawColor(245, 245, 245);
+    doc.setFillColor(245, 245, 245); doc.setDrawColor(245, 245, 245);
     doc.rect(10, tableY, 190, 8, 'F');
-    
-    doc.setFontSize(9);
-    doc.setTextColor(80);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ODEME DETAYI', 15, tableY + 5.5);
-    doc.text('ODEME TIPI', 100, tableY + 5.5);
+    doc.setFontSize(9); doc.setTextColor(80); doc.setFont('helvetica', 'bold');
+    doc.text('ACIKLAMA', 15, tableY + 5.5);
+    doc.text('ODEME TURU', 100, tableY + 5.5);
     doc.text('TUTAR', 195, tableY + 5.5, { align: 'right' });
 
-    doc.setFontSize(11);
-    doc.setTextColor(0);
-    doc.setFont('helvetica', 'normal');
-    
-    const noteText = payment.notes ? trToEn(payment.notes) : "Tahsilat";
-    const noteLines = doc.splitTextToSize(noteText, 80);
-    doc.text(noteLines, 15, tableY + 15);
-    
-    doc.text(trToEn(payment.payment_type), 100, tableY + 15);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.setFontSize(14);
-    doc.text(`${payment.amount.toLocaleString('tr-TR')} TL`, 195, tableY + 15, { align: 'right' });
+    doc.setFontSize(11); doc.setTextColor(0); doc.setFont('helvetica', 'normal');
+    doc.text(transaction.description ? trToEn(transaction.description) : "Tahsilat", 15, tableY + 15);
+    doc.text(trToEn(transaction.category), 100, tableY + 15);
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text(`${transaction.amount.toLocaleString('tr-TR')} TL`, 195, tableY + 15, { align: 'right' });
 
-    doc.setDrawColor(230);
-    doc.setLineWidth(0.2);
-    doc.line(10, tableY + 22, 200, tableY + 22);
-
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.setFont('helvetica', 'italic');
-    const legalText = `Isbu tutar, ${trToEn(customerDetails.name)} tarafindan ${trToEn(payment.payment_type)} olarak ${companyName}'na odenmistir.`;
-    const legalLines = doc.splitTextToSize(legalText, 180);
-    
-    let legalY = 122;
-    doc.text(legalLines, 105, legalY, { align: 'center' });
-
-    const signY = 135;
-    
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.setFont('helvetica', 'bold');
-    
-    doc.text('TESLIM EDEN', 40, signY, { align: 'center' });
-    doc.text('TESLIM ALAN', 170, signY, { align: 'center' });
-    
-    doc.setFontSize(9);
-    doc.setTextColor(0);
-    doc.text(trToEn(customerDetails.name), 40, signY + 5, { align: 'center' });
-    
-    const signCompanyLines = doc.splitTextToSize(companyName, 60);
-    doc.text(signCompanyLines, 170, signY + 5, { align: 'center' });
-
-    doc.save(`Makbuz_${trToEn(customerDetails.name.replace(/\s+/g, '_'))}_${payment.id.slice(0,6)}.pdf`);
+    doc.save(`Makbuz_${trToEn(customerDetails.name)}_${transaction.id.slice(0,6)}.pdf`);
+    addToast('info', 'Makbuz indiriliyor...');
   };
 
-  const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-  const remaining = totalAmount - totalPaid;
-  const paidPercentage = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
-  const lastPayment = payments.length > 0 ? payments[0] : null;
+  // İstatistikler
+  const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+  const totalExpense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+  const netProfit = totalIncome - totalExpense;
+  const paidPercentage = totalAmount > 0 ? (totalIncome / totalAmount) * 100 : 0;
+
+  const incomeOptions = [
+    { value: 'Nakit', label: 'Nakit' },
+    { value: 'Kredi Kartı', label: 'Kredi Kartı' },
+    { value: 'Havale / EFT', label: 'Havale / EFT' },
+    { value: 'Çek / Senet', label: 'Çek / Senet' }
+  ];
+
+  const expenseOptions = [
+    { value: 'Malzeme', label: 'Malzeme Alımı' },
+    { value: 'İşçilik', label: 'İşçilik / Usta' },
+    { value: 'Nakliye', label: 'Nakliye / Lojistik' },
+    { value: 'Yemek', label: 'Yemek / İaşe' },
+    { value: 'Diğer', label: 'Diğer Giderler' }
+  ];
 
   return (
     <div className="space-y-8 animate-fade-in">
       
-      {/* --- BENTO GRID İSTATİSTİKLER --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* 1. HERO KART: Finansal Özet (Geniş) */}
-        <div className="lg:col-span-2 bg-gradient-to-br from-primary-600 to-primary-700 rounded-3xl p-8 text-white relative overflow-hidden shadow-lg shadow-primary-600/20">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
-            <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                <div>
-                    <div className="flex items-center gap-2 text-primary-100 mb-2">
-                        <Wallet className="w-5 h-5" />
-                        <span className="font-medium text-sm tracking-wide">TOPLAM BÜTÇE</span>
-                    </div>
-                    <h2 className="text-4xl font-bold tracking-tight">₺{totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</h2>
-                    <p className="text-primary-100 mt-2 text-sm max-w-md">Proje kapsamındaki tüm hizmet ve ürün bedellerinin toplamıdır.</p>
-                </div>
-                
-                {/* Dairesel İlerleme */}
-                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10">
-                    <div className="relative w-16 h-16 flex items-center justify-center">
-                        <svg className="w-full h-full transform -rotate-90">
-                            <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-white/20" />
-                            <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="6" fill="transparent" strokeDasharray={176} strokeDashoffset={176 - (176 * paidPercentage) / 100} className="text-white transition-all duration-1000" strokeLinecap="round" />
-                        </svg>
-                        <span className="absolute text-sm font-bold">%{paidPercentage.toFixed(0)}</span>
-                    </div>
-                    <div>
-                        <p className="text-xs text-primary-100 uppercase font-bold">Tahsilat</p>
-                        <p className="text-lg font-bold">₺{totalPaid.toLocaleString('tr-TR')}</p>
-                    </div>
-                </div>
-            </div>
+      {/* 1. FİNANSAL KARTLAR (BENTO) */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Toplam Bütçe */}
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-2xl border border-surface-200 dark:border-surface-100 shadow-sm">
+          <p className="text-xs font-bold text-gray-400 uppercase">Sözleşme Tutarı</p>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">₺{totalAmount.toLocaleString('tr-TR')}</h3>
+          <div className="mt-2 text-xs text-blue-600 bg-blue-50 dark:bg-blue-900/20 inline-block px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
+            Beklenen Ciro
+          </div>
         </div>
 
-        {/* 2. KPI KARTLARI (Sağ Kolon) */}
-        <div className="flex flex-col gap-6">
-            {/* Kalan Bakiye */}
-            <div className="flex-1 bg-surface-0 dark:bg-surface-50 rounded-3xl p-6 shadow-sm border border-surface-200 dark:border-surface-100 flex flex-col justify-center relative overflow-hidden group">
-                <div className="absolute right-0 top-0 w-24 h-24 bg-orange-50 dark:bg-orange-900/10 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
-                <div className="relative z-10">
-                    <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 mb-2">
-                        <PieChart className="w-5 h-5" />
-                        <span className="font-bold text-sm">KALAN BAKİYE</span>
-                    </div>
-                    <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100">₺{remaining.toLocaleString('tr-TR')}</h3>
-                </div>
-            </div>
+        {/* Toplam Tahsilat */}
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-2xl border border-surface-200 dark:border-surface-100 shadow-sm relative overflow-hidden group">
+          <div className="absolute right-0 top-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity"><TrendingUp className="w-24 h-24" /></div>
+          <p className="text-xs font-bold text-gray-400 uppercase">Toplam Tahsilat</p>
+          <h3 className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
+            +₺{totalIncome.toLocaleString('tr-TR')}
+          </h3>
+          <div className="w-full bg-surface-100 dark:bg-surface-200 rounded-full h-1.5 mt-3 overflow-hidden">
+            <div className="bg-green-500 h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(paidPercentage, 100)}%` }}></div>
+          </div>
+        </div>
 
-            {/* Son İşlem */}
-            <div className="flex-1 bg-surface-0 dark:bg-surface-50 rounded-3xl p-6 shadow-sm border border-surface-200 dark:border-surface-100 flex flex-col justify-center relative overflow-hidden group">
-                <div className="absolute right-0 top-0 w-24 h-24 bg-green-50 dark:bg-green-900/10 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
-                <div className="relative z-10">
-                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400 mb-2">
-                        <Clock className="w-5 h-5" />
-                        <span className="font-bold text-sm">SON İŞLEM</span>
-                    </div>
-                    {lastPayment ? (
-                        <div>
-                            <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100">₺{lastPayment.amount.toLocaleString('tr-TR')}</h3>
-                            <p className="text-xs text-gray-500 mt-1">{new Date(lastPayment.payment_date).toLocaleDateString('tr-TR')}</p>
-                        </div>
-                    ) : (
-                        <p className="text-gray-400 text-sm">Henüz işlem yok</p>
-                    )}
-                </div>
-            </div>
+        {/* Toplam Gider */}
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-2xl border border-surface-200 dark:border-surface-100 shadow-sm relative overflow-hidden group">
+          <div className="absolute right-0 top-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity"><TrendingDown className="w-24 h-24" /></div>
+          <p className="text-xs font-bold text-gray-400 uppercase">Toplam Gider</p>
+          <h3 className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">
+            -₺{totalExpense.toLocaleString('tr-TR')}
+          </h3>
+          <p className="text-xs text-gray-400 mt-2">Masraf Kalemleri</p>
+        </div>
+
+        {/* Net Durum (Kasa) */}
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-2xl border border-surface-200 dark:border-surface-100 shadow-sm">
+          <p className="text-xs font-bold text-gray-400 uppercase">Proje Kasası (Net)</p>
+          <h3 className={`text-2xl font-bold mt-1 ${netProfit >= 0 ? 'text-gray-900 dark:text-gray-100' : 'text-red-500'}`}>
+            ₺{netProfit.toLocaleString('tr-TR')}
+          </h3>
+          <p className="text-xs text-gray-400 mt-2">
+            Kârlılık: <span className={`font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>%{(netProfit / (totalIncome || 1) * 100).toFixed(1)}</span>
+          </p>
         </div>
       </div>
 
-      {/* --- ÖDEME LİSTESİ VE AKSİYON --- */}
-      <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl shadow-sm border border-surface-200 dark:border-surface-100 overflow-hidden">
-        <div className="p-6 border-b border-surface-200 dark:border-surface-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-surface-50/50 dark:bg-surface-100/50">
-          <div className="flex items-center gap-3">
-            <div className="bg-white dark:bg-surface-50 p-2.5 rounded-xl border border-surface-200 dark:border-surface-200 shadow-sm text-primary-600 dark:text-primary-400">
-              <CreditCard className="w-6 h-6" />
-            </div>
-            <div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Ödeme Geçmişi</h3>
-                <p className="text-xs text-gray-500">Tüm finansal hareketler</p>
-            </div>
+      {/* 2. İŞLEM LİSTESİ VE FİLTRELEME */}
+      <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl shadow-sm border border-surface-200 dark:border-surface-100 overflow-hidden flex flex-col h-[600px]">
+        
+        {/* Tab Header */}
+        <div className="p-4 border-b border-surface-200 dark:border-surface-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-surface-50/50 dark:bg-surface-100/50">
+          <div className="flex bg-surface-200 dark:bg-surface-200 p-1 rounded-xl w-full sm:w-auto">
+            <button
+              onClick={() => setActiveTab('income')}
+              className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                activeTab === 'income' 
+                  ? 'bg-white dark:bg-surface-50 text-green-600 shadow-sm' 
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+              }`}
+            >
+              <ArrowUpRight className="w-4 h-4" /> Gelirler
+            </button>
+            <button
+              onClick={() => setActiveTab('expense')}
+              className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                activeTab === 'expense' 
+                  ? 'bg-white dark:bg-surface-50 text-red-600 shadow-sm' 
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+              }`}
+            >
+              <ArrowDownRight className="w-4 h-4" /> Giderler
+            </button>
           </div>
+
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="w-full sm:w-auto px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all shadow-lg shadow-primary-600/20 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95"
+            onClick={() => {
+              // Butona basınca yetki kontrolü
+              if (activeTab === 'expense' && !hasPermission('can_manage_expenses')) {
+                  return addToast('error', 'Gider ekleme yetkiniz yok.');
+              }
+              setFormData({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '' });
+              setIsModalOpen(true);
+            }}
+            className={`w-full sm:w-auto px-5 py-2.5 rounded-xl text-white font-semibold text-sm shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 ${
+              activeTab === 'income' ? 'bg-green-600 hover:bg-green-700 shadow-green-600/20' : 'bg-red-600 hover:bg-red-700 shadow-red-600/20'
+            }`}
           >
-            <Plus className="w-5 h-5" />
-            Yeni Ödeme Ekle
+            <Plus className="w-4 h-4" />
+            {activeTab === 'income' ? 'Tahsilat Ekle' : 'Masraf Ekle'}
           </button>
         </div>
 
-        <div className="p-0">
-          {payments.length === 0 ? (
-            <div className="p-12 text-center">
-                <div className="w-16 h-16 bg-surface-50 dark:bg-surface-100 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-                    <AlertCircle className="w-8 h-8" />
-                </div>
-                <h4 className="text-gray-900 dark:text-gray-100 font-medium mb-1">Henüz Ödeme Yok</h4>
-                <p className="text-gray-500 text-sm">Bu proje için henüz bir tahsilat kaydı girilmemiş.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-surface-200 dark:border-surface-100 bg-surface-50 dark:bg-surface-100/30">
-                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tarih</th>
-                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tutar</th>
-                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ödeme Yöntemi</th>
-                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Açıklama</th>
-                    <th className="text-right py-4 px-6 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">İşlemler</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-100 dark:divide-surface-100/10">
-                  {payments.map((payment) => (
-                    <tr key={payment.id} className="group hover:bg-surface-50 dark:hover:bg-surface-100/50 transition-colors">
-                      <td className="py-4 px-6 whitespace-nowrap">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-surface-100 dark:bg-surface-200 flex items-center justify-center text-gray-500 dark:text-gray-400 group-hover:bg-white dark:group-hover:bg-surface-50 transition-colors border border-surface-200 dark:border-surface-100">
-                            <Calendar className="w-5 h-5" />
-                          </div>
-                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                            {new Date(payment.payment_date).toLocaleDateString('tr-TR')}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6 whitespace-nowrap">
-                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                          ₺{payment.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                            <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
-                                {payment.payment_type === 'Nakit' ? <Banknote className="w-4 h-4"/> : 
-                                 payment.payment_type === 'Kredi Kartı' ? <CreditCard className="w-4 h-4"/> :
-                                 <Building2 className="w-4 h-4"/>}
-                            </div>
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{payment.payment_type}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6">
-                        {payment.notes ? (
-                          <div className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400 max-w-xs">
-                            <FileText className="w-4 h-4 mt-0.5 flex-shrink-0 text-gray-400" />
-                            <span className="line-clamp-1">{payment.notes}</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-400 italic">-</span>
+        {/* Liste */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 bg-surface-50 dark:bg-surface-100 shadow-sm z-10">
+              <tr>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Tarih</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Kategori</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Açıklama</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase text-right">Tutar</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase text-right">İşlem</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface-100 dark:divide-surface-100/10">
+              {transactions.filter(t => t.type === activeTab).length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-12 text-center text-gray-400">
+                    <div className="flex flex-col items-center">
+                      <Wallet className="w-12 h-12 mb-3 opacity-20" />
+                      <p>Bu kategoride henüz kayıt bulunamadı.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                transactions.filter(t => t.type === activeTab).map((t) => (
+                  <tr key={t.id} className="group hover:bg-surface-50 dark:hover:bg-surface-100/50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-medium">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-gray-400"/>
+                        {new Date(t.date).toLocaleDateString('tr-TR')}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium border ${
+                        t.type === 'income' 
+                          ? 'bg-green-50 text-green-700 border-green-100 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' 
+                          : 'bg-red-50 text-red-700 border-red-100 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
+                      }`}>
+                        {t.category}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 max-w-xs truncate">
+                      {t.description || '-'}
+                    </td>
+                    <td className={`px-6 py-4 text-right font-bold text-sm ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                      {t.type === 'income' ? '+' : '-'}₺{t.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {t.type === 'income' && (
+                          <button onClick={() => generateReceipt(t)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors" title="Makbuz">
+                            <Download className="w-4 h-4" />
+                          </button>
                         )}
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                                onClick={() => generateReceipt(payment)}
-                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all"
-                                title="Makbuz İndir"
-                            >
-                                <Download className="w-4 h-4" />
+                        {/* Yetki kontrolü (Delete) */}
+                        {((t.type === 'income' && hasPermission('can_delete_payment')) || (t.type === 'expense' && hasPermission('can_manage_expenses'))) && (
+                            <button onClick={() => handleDelete(t.id, t.type)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" title="Sil">
+                            <Trash2 className="w-4 h-4" />
                             </button>
-                            {hasPermission('can_delete_payment') && (
-                                <button
-                                    onClick={() => deletePayment(payment.id)}
-                                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                                    title="Sil"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
-                            )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Ödeme Ekleme Modalı */}
+      {/* EKLEME MODALI */}
       <CustomModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title="Yeni Ödeme Ekle"
+        title={activeTab === 'income' ? 'Yeni Tahsilat Ekle' : 'Yeni Masraf Ekle'}
         size="md"
       >
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSave} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Ödeme Tutarı (₺) <span className="text-red-500">*</span>
-            </label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tutar (₺)</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <span className="text-gray-500 dark:text-gray-400 font-bold">₺</span>
-              </div>
-              <input
-                type="number"
-                required
-                step="0.01"
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₺</span>
+              <input 
+                type="number" required step="0.01" 
+                value={formData.amount} 
+                onChange={e => setFormData({...formData, amount: e.target.value})}
+                className="w-full pl-10 pr-4 py-3 bg-surface-50 dark:bg-surface-100 border border-surface-200 dark:border-surface-200 rounded-xl text-lg font-bold outline-none focus:ring-2 focus:ring-primary-500 dark:text-white" 
                 placeholder="0.00"
-                value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                className="w-full pl-10 pr-4 py-3 border border-surface-200 dark:border-surface-100 dark:bg-surface-50 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all font-semibold text-lg outline-none"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Ödeme Tarihi <span className="text-red-500">*</span>
-                </label>
-                <input
-                type="date"
-                required
-                value={formData.payment_date}
-                onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
-                className="w-full px-4 py-3 border border-surface-200 dark:border-surface-100 dark:bg-surface-50 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all outline-none"
-                />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tarih</label>
+              <input 
+                type="date" required 
+                value={formData.date}
+                onChange={e => setFormData({...formData, date: e.target.value})}
+                className="w-full px-4 py-3 bg-surface-50 dark:bg-surface-100 border border-surface-200 dark:border-surface-200 rounded-xl outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
+              />
             </div>
             <div>
-                <CustomSelect
-                    label="Ödeme Yöntemi"
-                    value={formData.payment_type}
-                    onChange={(val) => setFormData({ ...formData, payment_type: val })}
-                    options={[
-                        { value: 'Nakit', label: 'Nakit' },
-                        { value: 'Kredi Kartı', label: 'Kredi Kartı' },
-                        { value: 'Havale / EFT', label: 'Havale / EFT' },
-                        { value: 'Çek / Senet', label: 'Çek / Senet' }
-                    ]}
-                    icon={<CreditCard className="w-5 h-5" />}
-                />
+              <CustomSelect
+                label={activeTab === 'income' ? "Ödeme Yöntemi" : "Gider Kategorisi"}
+                value={formData.category}
+                onChange={(val) => setFormData({...formData, category: val})}
+                options={activeTab === 'income' ? incomeOptions : expenseOptions}
+                placeholder="Seçiniz"
+                icon={activeTab === 'income' ? <CreditCard className="w-4 h-4"/> : <FileText className="w-4 h-4"/>}
+              />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Notlar
-            </label>
-            <textarea
-              rows={3}
-              placeholder="Ödeme ile ilgili notlar..."
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              className="w-full px-4 py-3 border border-surface-200 dark:border-surface-100 dark:bg-surface-50 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none transition-all outline-none"
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Açıklama</label>
+            <textarea 
+              rows={3} 
+              value={formData.description}
+              onChange={e => setFormData({...formData, description: e.target.value})}
+              className="w-full px-4 py-3 bg-surface-50 dark:bg-surface-100 border border-surface-200 dark:border-surface-200 rounded-xl outline-none focus:ring-2 focus:ring-primary-500 resize-none dark:text-white"
+              placeholder="Detaylı açıklama..."
             />
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="flex-1 px-6 py-3 border border-surface-200 dark:border-surface-100 text-gray-700 dark:text-gray-300 rounded-xl font-semibold hover:bg-surface-50 dark:hover:bg-surface-100 transition-colors"
-            >
-              İptal
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-primary-600/20 active:scale-95"
-            >
-              {loading ? 'Kaydediliyor...' : 'Kaydet'}
-            </button>
-          </div>
+          <button type="submit" disabled={loading} className={`w-full py-3.5 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${activeTab === 'income' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>
+            {loading ? 'Kaydediliyor...' : 'Kaydet'}
+          </button>
         </form>
       </CustomModal>
     </div>

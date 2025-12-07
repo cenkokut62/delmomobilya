@@ -3,12 +3,16 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { ConfirmationProvider } from './contexts/ConfirmationContext';
-import { RBACProvider } from './contexts/RBACContext'; // YENİ
+import { RBACProvider } from './contexts/RBACContext';
+import { LockProvider, useLock } from './contexts/LockContext'; // YENİ
+import { LockScreen } from './components/LockScreen'; // YENİ
 import { Auth } from './components/Auth';
 import { Dashboard } from './components/Dashboard';
 
+// İçerik Bileşeni: Kilit Durumunu Kontrol Eder
 function AppContent() {
   const { user, loading } = useAuth();
+  const { isLocked } = useLock(); // Kilit durumunu al
 
   if (loading) {
     return (
@@ -18,7 +22,15 @@ function AppContent() {
     );
   }
 
-  return user ? <Dashboard /> : <Auth />;
+  return (
+    <>
+      {/* Eğer kilitliyse LockScreen'i üst katmana bas */}
+      {isLocked && <LockScreen />}
+      
+      {/* Kullanıcı varsa Dashboard, yoksa Login */}
+      {user ? <Dashboard /> : <Auth />}
+    </>
+  );
 }
 
 function App() {
@@ -28,8 +40,10 @@ function App() {
         <ConfirmationProvider>
           <SettingsProvider>
             <AuthProvider>
-              <RBACProvider> {/* YENİ: AuthProvider'ın altına ekledik */}
-                <AppContent />
+              <RBACProvider>
+                <LockProvider> {/* LockProvider eklendi */}
+                  <AppContent />
+                </LockProvider>
               </RBACProvider>
             </AuthProvider>
           </SettingsProvider>

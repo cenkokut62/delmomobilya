@@ -171,6 +171,38 @@ export interface Database {
           created_at?: string
         }
       }
+      expenses: {
+        Row: {
+          id: string
+          project_id: string | null
+          category: string
+          amount: number
+          expense_date: string
+          description: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id?: string | null
+          category: string
+          amount: number
+          expense_date?: string
+          description?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string | null
+          category?: string
+          amount?: number
+          expense_date?: string
+          description?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+      }
       project_stage_history: {
         Row: {
           id: string

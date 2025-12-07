@@ -5,7 +5,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useConfirmation } from '../contexts/ConfirmationContext';
 import { useRBAC } from '../contexts/RBACContext';
 import { CustomSelect } from './ui/CustomSelect';
-import { AccessDenied } from './ui/AccessDenied'; // YENİ IMPORT
+import { AccessDenied } from './ui/AccessDenied';
 import { 
   Settings as SettingsIcon, Plus, Trash2, GripVertical, Save, Upload, Sun, Moon, Building2, Palette, Layers, GitPullRequest, CheckCircle2, Layout, Image as ImageIcon, Type, List, Shield, Lock, CheckSquare, Edit
 } from 'lucide-react';
@@ -43,6 +43,8 @@ export function Settings() {
   // Rol Yönetimi
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [roleName, setRoleName] = useState('');
+  
+  // GÜNCELLEME: Yeni yetki 'can_manage_expenses' eklendi
   const [permissionForm, setPermissionForm] = useState({
     can_manage_staff: false,
     can_manage_settings: false,
@@ -50,6 +52,7 @@ export function Settings() {
     can_delete_file: false,
     can_delete_comment: false,
     can_view_financials: true,
+    can_manage_expenses: false, // YENİ
   });
 
   // Drag & Drop State
@@ -95,9 +98,15 @@ export function Settings() {
   const handleRoleCancel = () => {
       setEditingRoleId(null);
       setRoleName('');
+      // GÜNCELLEME: Formu sıfırlarken yeni yetkiyi de sıfırla
       setPermissionForm({
-          can_manage_staff: false, can_manage_settings: false, can_delete_payment: false,
-          can_delete_file: false, can_delete_comment: false, can_view_financials: true,
+          can_manage_staff: false, 
+          can_manage_settings: false, 
+          can_delete_payment: false,
+          can_delete_file: false, 
+          can_delete_comment: false, 
+          can_view_financials: true,
+          can_manage_expenses: false // YENİ
       });
   };
 
@@ -212,7 +221,7 @@ export function Settings() {
                     </div>
                 </div>
                 
-                {/* İŞ AKIŞI YÖNETİMİ (BURAYA TAŞINDI) */}
+                {/* İŞ AKIŞI YÖNETİMİ */}
                 <div className="bg-surface-0 dark:bg-surface-50 rounded-3xl p-6 shadow-sm border border-surface-200 dark:border-surface-100">
                    <div className="flex items-center gap-3 mb-6">
                         <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-2xl text-orange-600 dark:text-orange-400"><Layers className="w-6 h-6" /></div>
@@ -356,16 +365,18 @@ export function Settings() {
                         />
                     </div>
 
+                    {/* GÜNCELLEME: YETKİ LİSTESİ */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Yetkiler</label>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {[
                                 { key: 'can_manage_staff', label: 'Personel Yönetimi (Ekle/Sil)' },
                                 { key: 'can_manage_settings', label: 'Sistem Ayarlarına Erişim' },
-                                { key: 'can_delete_payment', label: 'Ödeme Kaydı Silme' },
+                                { key: 'can_view_financials', label: 'Finansal Verileri Görme (Muhasebe)' },
+                                { key: 'can_delete_payment', label: 'Ödeme (Gelir) Kaydı Silme' },
+                                { key: 'can_manage_expenses', label: 'Gider/Masraf Yönetimi (Ekle/Sil)' }, // Yeni Yetki
                                 { key: 'can_delete_file', label: 'Dosya Silme' },
                                 { key: 'can_delete_comment', label: 'Yorum Silme' },
-                                { key: 'can_view_financials', label: 'Finansal Verileri Görme' },
                             ].map((perm) => (
                                 <label key={perm.key} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${permissionForm[perm.key as keyof typeof permissionForm] ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800' : 'bg-surface-50 dark:bg-surface-100 border-surface-200 dark:border-surface-200'}`}>
                                     <input 

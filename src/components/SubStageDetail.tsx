@@ -197,7 +197,8 @@ export function SubStageDetail({
     }
   };
 
-  const handleDeleteComment = async (commentId: string) => {
+  // GÜNCELLEME: Yorum içeriğini parametre olarak alıp loga ekliyoruz
+  const handleDeleteComment = async (commentId: string, commentContent: string) => {
     const isConfirmed = await confirm({
       title: 'Yorumu Sil',
       message: 'Bu yorumu silmek istediğinizden emin misiniz?',
@@ -215,7 +216,8 @@ export function SubStageDetail({
     if (error) {
       addToast('error', 'Yorum silinemedi.');
     } else {
-      await logActivity(projectId, 'Yorum Silindi', 'Bir yorum silindi.', 'delete');
+      // Log mesajında silinen içeriği gösteriyoruz
+      await logActivity(projectId, 'Yorum Silindi', `"${commentContent}" içeriği silindi.`, 'delete');
       addToast('success', 'Yorum silindi.');
       await loadDetail();
     }
@@ -388,7 +390,8 @@ export function SubStageDetail({
                       {/* YETKİ KONTROLÜ */}
                       {(comment.is_own || hasPermission('can_delete_comment')) && (
                         <button
-                          onClick={() => handleDeleteComment(comment.id)}
+                          // GÜNCELLEME: Yorum içeriğini de gönderiyoruz
+                          onClick={() => handleDeleteComment(comment.id, comment.content)}
                           className="absolute bottom-2 right-2 p-1 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                           title="Yorumu Sil"
                         >
