@@ -23,7 +23,8 @@ import {
   Building2, 
   Clock, 
   CheckCircle2, 
-  AlertCircle 
+  AlertCircle,
+  PieChart
 } from 'lucide-react';
 import { CustomModal } from './ui/CustomModal';
 import { CustomAlert } from './ui/CustomAlert';
@@ -104,7 +105,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
       ...(payments || []).map(p => ({
         id: p.id,
         type: 'income' as const,
-        category: p.payment_type, // Gelirlerde kategori ödeme tipidir
+        category: p.payment_type, 
         payment_type: p.payment_type,
         amount: p.amount,
         date: p.payment_date,
@@ -118,6 +119,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
         amount: e.amount,
         date: e.expense_date,
         description: e.description,
+        created_by: e.created_by,
         created_at: e.created_at
       }))
     ];
@@ -214,6 +216,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
     const companyName = settings?.company_name ? trToEn(settings.company_name) : "Firma Unvani Girilmemis";
     const primaryColor = [37, 99, 235]; 
 
+    // Logo Ekleme (Varsa)
     if (settings?.logo_url) {
         try {
             const img = new Image();
@@ -222,6 +225,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
         } catch (e) {}
     }
 
+    // Başlıklar
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
     doc.setFontSize(24);
     doc.setFont('helvetica', 'bold');
@@ -239,7 +243,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
 
     const boxY = 50;
     
-    // Müşteri Alanı
+    // Müşteri Alanı Kutusu
     doc.setDrawColor(220);
     doc.setFillColor(252, 252, 252);
     doc.roundedRect(10, boxY, 90, 35, 2, 2, 'FD');
@@ -248,16 +252,38 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
     doc.setFontSize(11); doc.setTextColor(0); doc.setFont('helvetica', 'bold');
     doc.text(trToEn(customerDetails.name), 15, boxY + 12);
 
-    // Firma Alanı
+    // --- Firma Alanı Kutusu ve KAŞE ---
     doc.setFillColor(245, 248, 255);
     doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.roundedRect(110, boxY, 90, 35, 2, 2, 'FD');
+    doc.roundedRect(110, boxY, 90, 35, 2, 2, 'FD'); // Kutu başlangıcı x=110, y=50, genişlik=90, yükseklik=35
+    
+    // Firma Adı Metni
     doc.setFontSize(9); doc.setTextColor(100);
     doc.text('ALICI (FIRMA)', 115, boxY + 6);
     doc.setFontSize(11); doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.setFont('helvetica', 'bold');
     doc.text(companyName, 115, boxY + 12);
 
-    // Tablo
+    // KAŞE GÖRSELİ EKLEME
+    try {
+      const stampImg = new Image();
+      // Public klasöründeki dosya yolu. Eğer farklı bir yere koyduysanız burayı güncelleyin.
+      stampImg.src = '/kase.jpeg'; 
+      
+      // Kaşenin konumu ve boyutu ayarları
+      const stampWidth = 30; 
+      const stampHeight = 30; 
+      // Kutunun sağ alt köşesine hizalama hesaplaması (Kutu X + Genişlik - Kaşe Genişliği - Boşluk)
+      const stampX = 110 + 90 - stampWidth - 2; 
+      const stampY = boxY + 35 - stampHeight - 2;
+
+      // Görseli PDF'e ekle (Şeffaflık destekleyen PNG formatında olmalı)
+      doc.addImage(stampImg, 'PNG', stampX, stampY, stampWidth, stampHeight, undefined, 'FAST');
+    } catch (e) {
+      console.error("Kaşe görseli eklenirken hata oluştu:", e);
+    }
+    // -----------------------------------
+
+    // Tablo Alanı
     const tableY = 95;
     doc.setFillColor(245, 245, 245); doc.setDrawColor(245, 245, 245);
     doc.rect(10, tableY, 190, 8, 'F');
@@ -279,7 +305,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
   // İstatistikler
   const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
   const totalExpense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-  const netProfit = totalIncome - totalExpense;
+  const remainingBalance = totalAmount - totalIncome;
   const paidPercentage = totalAmount > 0 ? (totalIncome / totalAmount) * 100 : 0;
 
   const incomeOptions = [
@@ -307,7 +333,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
           <p className="text-xs font-bold text-gray-400 uppercase">Sözleşme Tutarı</p>
           <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">₺{totalAmount.toLocaleString('tr-TR')}</h3>
           <div className="mt-2 text-xs text-blue-600 bg-blue-50 dark:bg-blue-900/20 inline-block px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
-            Beklenen Ciro
+            Anlaşılan Tutar
           </div>
         </div>
 
@@ -323,6 +349,18 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
           </div>
         </div>
 
+        {/* Kalan Bakiye */}
+        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-2xl border border-surface-200 dark:border-surface-100 shadow-sm relative overflow-hidden group">
+          <div className="absolute right-0 top-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity"><PieChart className="w-24 h-24" /></div>
+          <p className="text-xs font-bold text-gray-400 uppercase">Kalan Bakiye</p>
+          <h3 className={`text-2xl font-bold mt-1 ${remainingBalance > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
+            ₺{remainingBalance.toLocaleString('tr-TR')}
+          </h3>
+          <p className="text-xs text-gray-400 mt-2">
+            Tahsil Edilecek: <span className="font-bold">%{totalAmount > 0 ? ((remainingBalance / totalAmount) * 100).toFixed(1) : '0'}</span>
+          </p>
+        </div>
+
         {/* Toplam Gider */}
         <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-2xl border border-surface-200 dark:border-surface-100 shadow-sm relative overflow-hidden group">
           <div className="absolute right-0 top-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity"><TrendingDown className="w-24 h-24" /></div>
@@ -330,18 +368,7 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
           <h3 className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">
             -₺{totalExpense.toLocaleString('tr-TR')}
           </h3>
-          <p className="text-xs text-gray-400 mt-2">Masraf Kalemleri</p>
-        </div>
-
-        {/* Net Durum (Kasa) */}
-        <div className="bg-surface-0 dark:bg-surface-50 p-5 rounded-2xl border border-surface-200 dark:border-surface-100 shadow-sm">
-          <p className="text-xs font-bold text-gray-400 uppercase">Proje Kasası (Net)</p>
-          <h3 className={`text-2xl font-bold mt-1 ${netProfit >= 0 ? 'text-gray-900 dark:text-gray-100' : 'text-red-500'}`}>
-            ₺{netProfit.toLocaleString('tr-TR')}
-          </h3>
-          <p className="text-xs text-gray-400 mt-2">
-            Kârlılık: <span className={`font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>%{(netProfit / (totalIncome || 1) * 100).toFixed(1)}</span>
-          </p>
+          <p className="text-xs text-gray-400 mt-2">Proje Masrafları</p>
         </div>
       </div>
 
@@ -375,7 +402,6 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
 
           <button
             onClick={() => {
-              // Butona basınca yetki kontrolü
               if (activeTab === 'expense' && !hasPermission('can_manage_expenses')) {
                   return addToast('error', 'Gider ekleme yetkiniz yok.');
               }
@@ -444,7 +470,6 @@ export function PaymentManager({ projectId, totalAmount, customerDetails, onUpda
                             <Download className="w-4 h-4" />
                           </button>
                         )}
-                        {/* Yetki kontrolü (Delete) */}
                         {((t.type === 'income' && hasPermission('can_delete_payment')) || (t.type === 'expense' && hasPermission('can_manage_expenses'))) && (
                             <button onClick={() => handleDelete(t.id, t.type)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" title="Sil">
                             <Trash2 className="w-4 h-4" />

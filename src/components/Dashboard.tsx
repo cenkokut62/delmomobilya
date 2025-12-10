@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useRBAC } from '../contexts/RBACContext';
 import { useLock } from '../contexts/LockContext';
+import { useTheme } from '../contexts/ThemeContext'; // ThemeContext eklendi
 import { supabase } from '../lib/supabase';
 import { 
   LogOut, Briefcase, Settings as SettingsIcon, LayoutGrid, 
@@ -23,6 +24,7 @@ export function Dashboard() {
   const { settings } = useSettings();
   const { hasPermission } = useRBAC();
   const { lockScreen } = useLock();
+  const { theme } = useTheme(); // Tema bilgisini çek
   
   const [currentView, setCurrentView] = useState<View>('home');
   const [userName, setUserName] = useState<string>('');
@@ -41,6 +43,11 @@ export function Dashboard() {
         });
     }
   }, [user]);
+
+  // Tema ve ayara göre doğru logoyu belirle
+  const logoSrc = (theme === 'dark' && settings?.dark_logo_url) 
+    ? settings.dark_logo_url 
+    : settings?.logo_url;
 
   const renderContent = () => {
     switch (currentView) {
@@ -62,8 +69,8 @@ export function Dashboard() {
             
             {/* LOGO ALANI */}
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('home')}>
-              {settings?.logo_url ? (
-                <img src={settings.logo_url} alt="Logo" className="h-10 w-auto object-contain" />
+              {logoSrc ? (
+                <img src={logoSrc} alt="Logo" className="h-16 w-auto object-contain" />
               ) : (
                 <div className="bg-primary-600 p-2 rounded-lg">
                   <Briefcase className="w-6 h-6 text-white" />

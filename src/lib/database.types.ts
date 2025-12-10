@@ -13,6 +13,7 @@ export interface Database {
         Row: {
           id: string
           logo_url: string | null
+          dark_logo_url: string | null // YENİ EKLENDİ
           light_primary_color: string
           dark_primary_color: string
           created_at: string
@@ -21,6 +22,7 @@ export interface Database {
         Insert: {
           id?: string
           logo_url?: string | null
+          dark_logo_url?: string | null // YENİ EKLENDİ
           light_primary_color?: string
           dark_primary_color?: string
           created_at?: string
@@ -29,18 +31,21 @@ export interface Database {
         Update: {
           id?: string
           logo_url?: string | null
+          dark_logo_url?: string | null // YENİ EKLENDİ
           light_primary_color?: string
           dark_primary_color?: string
           created_at?: string
           updated_at?: string
         }
       }
+      // ... Diğer tablolar aynı kalacak ...
       profiles: {
         Row: {
           id: string
           email: string | null
           first_name: string | null
           last_name: string | null
+          avatar_url: string | null
           created_at: string
           updated_at: string
         }
@@ -49,6 +54,7 @@ export interface Database {
           email?: string | null
           first_name?: string | null
           last_name?: string | null
+          avatar_url?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -57,6 +63,7 @@ export interface Database {
           email?: string | null
           first_name?: string | null
           last_name?: string | null
+          avatar_url?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -307,6 +314,58 @@ export interface Database {
           user_id?: string | null
           file_url?: string
           file_name?: string
+          created_at?: string
+        }
+      }
+      project_activities: {
+        Row: {
+          id: string
+          project_id: string | null
+          user_id: string | null
+          activity_type: string
+          title: string
+          description: string | null
+          metadata: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id?: string | null
+          user_id?: string | null
+          activity_type: string
+          title: string
+          description?: string | null
+          metadata?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string | null
+          user_id?: string | null
+          activity_type?: string
+          title?: string
+          description?: string | null
+          metadata?: Json | null
+          created_at?: string
+        }
+      }
+      roles: {
+        Row: {
+          id: string
+          name: string
+          permissions: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          permissions?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          permissions?: Json | null
           created_at?: string
         }
       }

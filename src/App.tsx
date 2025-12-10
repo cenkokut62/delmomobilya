@@ -4,15 +4,17 @@ import { ToastProvider } from './contexts/ToastContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { ConfirmationProvider } from './contexts/ConfirmationContext';
 import { RBACProvider } from './contexts/RBACContext';
-import { LockProvider, useLock } from './contexts/LockContext'; // YENİ
-import { LockScreen } from './components/LockScreen'; // YENİ
+import { LockProvider, useLock } from './contexts/LockContext';
+import { LockScreen } from './components/LockScreen';
 import { Auth } from './components/Auth';
 import { Dashboard } from './components/Dashboard';
 
-// İçerik Bileşeni: Kilit Durumunu Kontrol Eder
 function AppContent() {
   const { user, loading } = useAuth();
-  const { isLocked } = useLock(); // Kilit durumunu al
+  const { isLocked } = useLock();
+
+  // YENİ: Şifre sıfırlama akışı devam ediyor mu kontrolü
+  const isResetFlow = localStorage.getItem('reset_flow') === 'true';
 
   if (loading) {
     return (
@@ -24,11 +26,9 @@ function AppContent() {
 
   return (
     <>
-      {/* Eğer kilitliyse LockScreen'i üst katmana bas */}
       {isLocked && <LockScreen />}
-      
-      {/* Kullanıcı varsa Dashboard, yoksa Login */}
-      {user ? <Dashboard /> : <Auth />}
+      {/* Kullanıcı giriş yapmış olsa bile reset akışındaysa Auth ekranını göster */}
+      {user && !isResetFlow ? <Dashboard /> : <Auth />}
     </>
   );
 }
@@ -41,7 +41,7 @@ function App() {
           <SettingsProvider>
             <AuthProvider>
               <RBACProvider>
-                <LockProvider> {/* LockProvider eklendi */}
+                <LockProvider>
                   <AppContent />
                 </LockProvider>
               </RBACProvider>
